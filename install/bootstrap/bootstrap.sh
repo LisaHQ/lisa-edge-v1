@@ -57,9 +57,16 @@ do
   bash "$script"
 done
 
+# Install runtime and backup units BEFORE deploying: deploy.sh ends with the
+# health check, which reports DEGRADED backup-timer coverage when the timers
+# are enabled only afterwards. Timers are calendar-based (03:15/03:30), so
+# being active during the deploy is the same condition as every routine
+# `lisa-edge update` run.
+log "Installing systemd runtime and backup units"
+"$REPO_DIR/ops/deploy/install-systemd.sh"
+
 log "Deploying services"
 "$REPO_DIR/lisa-edge" deploy
-"$REPO_DIR/ops/deploy/install-systemd.sh"
 bash "$REPO_DIR/install/bootstrap/finalize-admin-access.sh"
 
 log "Marking host as provisioned"
