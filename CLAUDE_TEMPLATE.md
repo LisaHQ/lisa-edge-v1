@@ -9,8 +9,9 @@ Template completion checklist:
 
 # AI Instruction
 
-- Version: 7.2
-- Last Updated: 2026-07-22
+- Version: 1.0
+- Last Updated: 2026-07-24
+- Project Status: Development / Unstable
 
 This is the canonical AI instruction entry point for this project.
 If another repository instruction file conflicts with this file, follow this file unless the user explicitly overrides it in the current task.
@@ -42,6 +43,16 @@ Before non-trivial changes:
 - Current implementation and explicitly designated canonical documents are authoritative.
 - Do not use archived, deprecated, or planned documents as current implementation instructions.
 - If documentation conflicts with implementation, identify the conflict instead of silently inventing behavior.
+
+### Compatibility
+
+Follow the canonical Project Status.
+
+Before **Stable** or **Production Ready**, prefer the best current design and do not preserve legacy behavior, formats, data, or backups unless explicitly required.
+
+After **Stable** or **Production Ready**, preserve backward compatibility or provide a documented migration path.
+
+This rule overrides other general compatibility-preservation instructions.
 
 ## 2. Immutable Prime Directive
 
