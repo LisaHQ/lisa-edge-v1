@@ -228,13 +228,9 @@ configure_matter_identity() {
     lisa_validate_matter_fabric_label "$MATTER_FABRIC_LABEL" && break
     echo "Try again." >&2
   done
-  while :; do
-    ask_value MATTER_THREAD_CREDENTIAL_ID \
-      "Matter Thread credential ID (stored dataset key; lowercase, max 64 chars)" \
-      "${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}"
-    lisa_validate_matter_thread_credential_id "$MATTER_THREAD_CREDENTIAL_ID" && break
-    echo "Try again." >&2
-  done
+  # The Thread commissioning credential is always stored in the Matter
+  # server's reserved default entry; there is no credential ID to configure
+  # (the legacy MATTER_THREAD_CREDENTIAL_ID variable is ignored).
 }
 
 configure_matter() {

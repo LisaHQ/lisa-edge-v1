@@ -107,7 +107,7 @@ module.exports.WebSocket = WebSocket;
 EOF
   rc=0
   output="$(NODE_PATH="$WORK_DIR/node_modules" MWS_COMMAND=sync \
-    MWS_CREDENTIAL_ID=lisa-home-01 MWS_DATASET="$MOCK_DATASET" \
+    MWS_CREDENTIAL_ID=default MWS_DATASET="$MOCK_DATASET" \
     MWS_CONNECT_TIMEOUT_MS=400 MWS_RESPONSE_TIMEOUT_MS=400 \
     node "$REPO_ROOT/services/matter-server/lib/ws-client.js" 2>&1)" || rc=$?
   [ "$rc" -eq 4 ] || fail "server rejection must exit 4, got $rc"

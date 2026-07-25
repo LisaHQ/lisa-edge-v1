@@ -14,9 +14,18 @@
 //   server-info   connect, validate schema, print server info fields
 //   status        server-info + fabric label + credentials + node count
 //   credentials   server-info + list stored Thread credential summaries
-//   sync          set_thread_dataset(MWS_DATASET, id=MWS_CREDENTIAL_ID),
-//                 then verify through get_all_credentials
-//   remove        remove_thread_dataset(id=MWS_CREDENTIAL_ID), verify removal
+//   sync          set_thread_dataset(MWS_DATASET), then verify through
+//                 server_info and get_all_credentials
+//   remove        remove_thread_dataset(), verify removal
+//
+// The Matter server's RESERVED DEFAULT Thread credential is LISA Edge's
+// managed commissioning credential. MWS_CREDENTIAL_ID selects the target
+// entry; the value "default" is normalized to the upstream reserved-default
+// semantics: set_thread_dataset/remove_thread_dataset are sent WITHOUT an
+// `id` field (clients such as Home Assistant read and write the same entry
+// without supplying an ID). Entries returned by get_all_credentials with a
+// missing/null ID are normalized internally to "default". Named credentials
+// remain supported for inspection and explicit cleanup only.
 //
 // Exit codes (stable, used by callers and tests):
 //   0 success, 2 usage error, 3 connect failure, 4 server rejected command,
@@ -28,6 +37,7 @@ let WebSocket;
 try {
   WebSocket = require("ws");
 } catch {
+  // noinspection NpmUsedModulesInstalled,JSFileReferences — resolves inside the lisa-matter container only
   WebSocket = require("/app/node_modules/ws");
 }
 
@@ -41,6 +51,11 @@ const CONNECT_TIMEOUT_MS = Number(process.env.MWS_CONNECT_TIMEOUT_MS || 10000);
 const RESPONSE_TIMEOUT_MS = Number(process.env.MWS_RESPONSE_TIMEOUT_MS || 15000);
 
 const EXIT = { OK: 0, USAGE: 2, CONNECT: 3, REJECTED: 4, TIMEOUT: 5, SCHEMA: 6, VERIFY: 7 };
+
+// The Matter server's reserved default Thread credential slot. Operations
+// targeting it must omit the `id` field (upstream default semantics).
+const DEFAULT_ID = "default";
+const TARGET_IS_DEFAULT = CREDENTIAL_ID === DEFAULT_ID;
 
 let ws = null;
 let finished = false;
@@ -87,10 +102,10 @@ if (COMMAND === "sync") {
   if (!/^[0-9A-Fa-f]+$/.test(DATASET) || DATASET.length % 2 !== 0) {
     usage("MWS_DATASET must be a non-empty even-length hex string");
   }
-  if (!CREDENTIAL_ID) usage("MWS_CREDENTIAL_ID is required for sync");
+  if (!CREDENTIAL_ID) usage("MWS_CREDENTIAL_ID is required for sync ('default' targets the reserved default entry)");
 }
 if (COMMAND === "remove" && !CREDENTIAL_ID) {
-  usage("MWS_CREDENTIAL_ID is required for remove");
+  usage("MWS_CREDENTIAL_ID is required for remove ('default' targets the reserved default entry)");
 }
 
 // Never call process.exit() directly: piped stdout/stderr writes are
@@ -195,10 +210,33 @@ function printServerInfo(info) {
 function threadEntries(credentials) {
   const thread = credentials && Array.isArray(credentials.thread) ? credentials.thread : [];
   return thread.map((entry) => ({
-    id: entry.id === undefined || entry.id === null ? "default" : String(entry.id),
-    networkName: entry.networkName === undefined ? "" : String(entry.networkName),
-    extPanId: entry.extPanId === undefined ? "" : String(entry.extPanId).toUpperCase(),
+    // A missing/null ID is the reserved default entry (upstream default
+    // semantics); normalize it internally to "default".
+    id: entry.id === undefined || entry.id === null ? DEFAULT_ID : String(entry.id),
+    networkName: entry.networkName === undefined || entry.networkName === null
+      ? "" : String(entry.networkName),
+    extPanId: entry.extPanId === undefined || entry.extPanId === null
+      ? "" : String(entry.extPanId).toUpperCase(),
   }));
+}
+
+// True when the entry carries actual Thread identity fields. The server can
+// return an always-present EMPTY default summary; that alone never counts
+// as a configured credential.
+function entryHasIdentity(entry) {
+  return Boolean(entry) && (entry.networkName !== "" || entry.extPanId !== "");
+}
+
+// Machine-readable summary of the reserved default credential. `configured`
+// requires both a non-empty identity summary and the server reporting
+// thread_credentials_set=true.
+function printDefaultSummary(entries, threadCredentialsSet) {
+  const entry = entries.find((candidate) => candidate.id === DEFAULT_ID);
+  const configured = entryHasIdentity(entry) && threadCredentialsSet === true;
+  out("default.present", Boolean(entry));
+  out("default.configured", configured);
+  out("default.network_name", entry ? entry.networkName : "");
+  out("default.ext_pan_id", entry ? entry.extPanId : "");
 }
 
 function printThreadEntries(entries) {
@@ -238,7 +276,9 @@ async function main() {
     } catch (err) {
       process.stderr.write(`WARNING: ${sanitize(err.message)}\n`);
     }
-    printThreadEntries(threadEntries(await call("get_all_credentials")));
+    const entries = threadEntries(await call("get_all_credentials"));
+    printThreadEntries(entries);
+    printDefaultSummary(entries, info.thread_credentials_set);
     try {
       const nodes = await call("get_nodes");
       out("node_count", Array.isArray(nodes) ? nodes.length : 0);
@@ -250,19 +290,51 @@ async function main() {
   }
 
   if (COMMAND === "credentials") {
-    printThreadEntries(threadEntries(await call("get_all_credentials")));
+    const entries = threadEntries(await call("get_all_credentials"));
+    printThreadEntries(entries);
+    printDefaultSummary(entries, info.thread_credentials_set);
     finish(EXIT.OK);
     return;
   }
 
   if (COMMAND === "sync") {
-    await call("set_thread_dataset", { dataset: DATASET, id: CREDENTIAL_ID });
+    // Reserved default entry: omit `id` (upstream default semantics).
+    await call("set_thread_dataset",
+      TARGET_IS_DEFAULT ? { dataset: DATASET } : { dataset: DATASET, id: CREDENTIAL_ID });
+
+    // The handshake's thread_credentials_set predates the write; re-read it.
+    let credsSet;
+    if (TARGET_IS_DEFAULT) {
+      try {
+        const refreshed = await call("server_info");
+        if (refreshed && typeof refreshed === "object") {
+          credsSet = refreshed.thread_credentials_set;
+        }
+      } catch (err) {
+        process.stderr.write(`WARNING: server_info re-read failed: ${sanitize(err.message)}\n`);
+      }
+      if (credsSet === undefined || credsSet === null) {
+        // Fall back to the handshake value (true only when credentials were
+        // already set before this sync).
+        credsSet = info.thread_credentials_set;
+      }
+      // Distinct key: server.thread_credentials_set already carries the
+      // (pre-sync) handshake value earlier in the output.
+      out("sync.thread_credentials_set", credsSet === true);
+    }
+
     const entries = threadEntries(await call("get_all_credentials"));
     const stored = entries.find((entry) => entry.id === CREDENTIAL_ID);
-    if (!stored) {
+    if (!stored || (TARGET_IS_DEFAULT && !entryHasIdentity(stored))) {
+      printThreadEntries(entries);
+      fail(EXIT.VERIFY, TARGET_IS_DEFAULT
+        ? "the reserved default credential is missing or empty after set_thread_dataset"
+        : `stored credential '${CREDENTIAL_ID}' was not returned by get_all_credentials`);
+    }
+    if (TARGET_IS_DEFAULT && credsSet !== true) {
       printThreadEntries(entries);
       fail(EXIT.VERIFY,
-        `stored credential '${CREDENTIAL_ID}' was not returned by get_all_credentials`);
+        "the server does not report thread_credentials_set=true after storing the default credential");
     }
     out("stored.id", stored.id);
     out("stored.network_name", stored.networkName);
@@ -273,9 +345,13 @@ async function main() {
   }
 
   if (COMMAND === "remove") {
-    await call("remove_thread_dataset", { id: CREDENTIAL_ID });
+    // Reserved default entry: omit `id` (upstream default semantics).
+    await call("remove_thread_dataset", TARGET_IS_DEFAULT ? {} : { id: CREDENTIAL_ID });
     const entries = threadEntries(await call("get_all_credentials"));
-    if (entries.some((entry) => entry.id === CREDENTIAL_ID)) {
+    const remaining = entries.find((entry) => entry.id === CREDENTIAL_ID);
+    // The server may keep an always-present EMPTY default summary; only a
+    // default entry that still carries identity fields fails verification.
+    if (TARGET_IS_DEFAULT ? entryHasIdentity(remaining) : Boolean(remaining)) {
       fail(EXIT.VERIFY, `credential '${CREDENTIAL_ID}' is still stored after removal`);
     }
     out("remove.result", "ok");

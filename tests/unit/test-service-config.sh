@@ -63,8 +63,9 @@ expect_bad lisa_validate_matter_fabric_label ""
 expect_bad lisa_validate_matter_fabric_label "$(printf 'x%.0s' $(seq 1 33))"
 expect_bad lisa_validate_matter_fabric_label "$(printf 'a\nb')"
 
-# --- credential id ---
+# --- credential id (explicit `matter thread remove --id` values only) ---
 expect_ok lisa_validate_matter_thread_credential_id "lisa-home-01"
+expect_ok lisa_validate_matter_thread_credential_id "default"
 expect_bad lisa_validate_matter_thread_credential_id ""
 expect_bad lisa_validate_matter_thread_credential_id "Has-Upper"
 expect_bad lisa_validate_matter_thread_credential_id "-leading-dash"
@@ -75,9 +76,16 @@ expect_bad lisa_validate_matter_thread_credential_id "$(printf 'x%.0s' $(seq 1 6
 (
   MATTER_LISTEN_ADDRESS=127.0.0.1 MATTER_PRIMARY_INTERFACE="" \
   MATTER_BLUETOOTH_ADAPTER=0 MATTER_FABRIC_LABEL="LISA Home" \
-  MATTER_THREAD_CREDENTIAL_ID=lisa-home-01 \
   lisa_validate_matter_config
 ) || fail "aggregate matter validation must pass with defaults"
+# The legacy MATTER_THREAD_CREDENTIAL_ID variable is ignored: even a value
+# that would never validate must not break configuration validation.
+(
+  MATTER_LISTEN_ADDRESS=127.0.0.1 MATTER_PRIMARY_INTERFACE="" \
+  MATTER_BLUETOOTH_ADAPTER=0 MATTER_FABRIC_LABEL="LISA Home" \
+  MATTER_THREAD_CREDENTIAL_ID="INVALID VALUE" \
+  lisa_validate_matter_config
+) || fail "a legacy MATTER_THREAD_CREDENTIAL_ID must be ignored, not fatal"
 if (MATTER_LISTEN_ADDRESS=nonsense lisa_validate_matter_config) 2>/dev/null; then
   fail "aggregate matter validation must fail on a bad listen address"
 fi
@@ -85,7 +93,7 @@ fi
   fail "aggregate otbr validation must pass"
 
 # --- BLE adapter resolution ---
-[ "$(MATTER_BLUETOOTH_ADAPTER= lisa_matter_ble_adapter)" = "none" ] ||
+[ "$(MATTER_BLUETOOTH_ADAPTER=lisa_matter_ble_adapter)" = "none" ] ||
   fail "empty adapter must resolve to none"
 [ "$(MATTER_BLUETOOTH_ADAPTER=none lisa_matter_ble_adapter)" = "none" ] ||
   fail "'none' must resolve to none"

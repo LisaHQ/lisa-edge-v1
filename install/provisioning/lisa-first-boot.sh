@@ -423,7 +423,6 @@ write_environment() {
     env_line MATTER_PRIMARY_INTERFACE "${MATTER_PRIMARY_INTERFACE:-}"
     env_line MATTER_BLUETOOTH_ADAPTER "${MATTER_BLUETOOTH_ADAPTER:-0}"
     env_line MATTER_FABRIC_LABEL "${MATTER_FABRIC_LABEL:-LISA Home}"
-    env_line MATTER_THREAD_CREDENTIAL_ID "${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}"
     env_line MATTER_LOG_LEVEL "${MATTER_LOG_LEVEL:-info}"
     env_line MATTER_DATA_BACKUP_DIR "${MATTER_DATA_BACKUP_DIR:-$DATA_ROOT/backups/matter}"
     env_line MATTER_DATA_LATEST "${MATTER_DATA_LATEST:-$DATA_ROOT/backups/matter/latest.matter-data.tar.gz}"

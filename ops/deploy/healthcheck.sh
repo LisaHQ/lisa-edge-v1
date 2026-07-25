@@ -236,27 +236,25 @@ check_matter() {
     fi
   fi
 
-  # Configured Thread credential must exist and match OTBR's identity fields.
+  # The Matter server's RESERVED DEFAULT Thread credential must be
+  # configured (thread_credentials_set=true plus a non-empty summary) and
+  # match OTBR's identity fields. Named credentials are never consulted: a
+  # named entry must not make commissioning look ready while the default is
+  # missing or drifted.
   if lisa_has_service otbr; then
-    local credential_id="${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}"
-    local found=0 stored_name="" stored_xpan=""
-    while IFS=$'\t' read -r id name xpan; do
-      if [ "$id" = "$credential_id" ]; then
-        found=1
-        stored_name="$name"
-        stored_xpan="$xpan"
-      fi
-    done < <(matter_ws_thread_entries "$output")
-    if [ "$found" -ne 1 ]; then
-      note_degraded "Matter Thread credential '$credential_id' is missing; new Thread commissioning is expected to fail (run: sudo ./lisa-edge matter thread sync)."
+    local default_name default_xpan
+    default_name="$(matter_ws_field "$output" default.network_name)"
+    default_xpan="$(matter_ws_field "$output" default.ext_pan_id)"
+    if ! matter_ws_default_configured "$output"; then
+      note_degraded "the Matter server's default Thread credential is not configured; new Thread commissioning is expected to fail (run: sudo ./lisa-edge matter thread sync)."
     elif [ -n "${OTBR_HEALTH_DATASET_HEX:-}" ]; then
       local otbr_name otbr_xpan
       otbr_name="$(thread_dataset_network_name "$OTBR_HEALTH_DATASET_HEX")"
       otbr_xpan="$(thread_dataset_ext_pan_id "$OTBR_HEALTH_DATASET_HEX")"
-      if [ "$stored_name" = "$otbr_name" ] && [ "${stored_xpan^^}" = "${otbr_xpan^^}" ]; then
-        echo "[LISA] Thread network identity fields match between OTBR and the Matter server (no detectable drift)."
+      if [ "$default_name" = "$otbr_name" ] && [ "${default_xpan^^}" = "${otbr_xpan^^}" ]; then
+        echo "[LISA] Thread network identity fields match between OTBR and the Matter server's default credential (no detectable drift)."
       else
-        note_degraded "OTBR and Matter Thread identity fields differ (OTBR: ${otbr_name:-?}/${otbr_xpan:-?}, matter: ${stored_name:-?}/${stored_xpan:-?}); new Thread commissioning is expected to fail (run: sudo ./lisa-edge matter thread sync)."
+        note_degraded "OTBR and Matter Thread identity fields differ (OTBR: ${otbr_name:-?}/${otbr_xpan:-?}, matter default: ${default_name:-?}/${default_xpan:-?}); new Thread commissioning is expected to fail (run: sudo ./lisa-edge matter thread sync)."
       fi
     fi
   fi

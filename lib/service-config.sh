@@ -100,17 +100,21 @@ lisa_validate_matter_fabric_label() {
   return 0
 }
 
-# MATTER_THREAD_CREDENTIAL_ID: names the stored Thread credential entry on
-# the Matter server. Keep it filesystem/JSON friendly: lowercase letters,
-# digits, dot, dash, underscore; must start alphanumeric; max 64 chars.
+# Thread credential entry ID passed explicitly to `matter thread remove
+# --id` (named legacy entries, or 'default' for the reserved default slot).
+# NOT part of the configuration model: the managed commissioning credential
+# is always the Matter server's reserved default entry, and the legacy
+# MATTER_THREAD_CREDENTIAL_ID .env variable is ignored. Keep the value
+# filesystem/JSON friendly: lowercase letters, digits, dot, dash,
+# underscore; must start alphanumeric; max 64 chars.
 lisa_validate_matter_thread_credential_id() {
   local value="${1-}"
   if [ -z "$value" ]; then
-    echo "MATTER_THREAD_CREDENTIAL_ID must not be empty." >&2
+    echo "The credential ID must not be empty." >&2
     return 1
   fi
   if ! [[ "$value" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]]; then
-    echo "MATTER_THREAD_CREDENTIAL_ID must match [a-z0-9][a-z0-9._-]{0,63}, got: $value" >&2
+    echo "The credential ID must match [a-z0-9][a-z0-9._-]{0,63}, got: $value" >&2
     return 1
   fi
   return 0
@@ -123,7 +127,9 @@ lisa_validate_matter_config() {
   lisa_validate_matter_primary_interface "${MATTER_PRIMARY_INTERFACE:-}" || failed=1
   lisa_validate_matter_bluetooth_adapter "${MATTER_BLUETOOTH_ADAPTER:-0}" || failed=1
   lisa_validate_matter_fabric_label "${MATTER_FABRIC_LABEL:-LISA Home}" || failed=1
-  lisa_validate_matter_thread_credential_id "${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}" || failed=1
+  # MATTER_THREAD_CREDENTIAL_ID is intentionally NOT validated: it is a
+  # legacy variable, ignored everywhere. Existing .env files that still
+  # carry it must not break deploy/configure/update/health.
   return "$failed"
 }
 

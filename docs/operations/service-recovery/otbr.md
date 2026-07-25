@@ -48,7 +48,8 @@ Thread network.
    sudo ./lisa-edge otbr dataset show
    ```
 
-6. Re-sync the Matter server's Thread credentials when Matter is selected:
+6. Re-sync the Matter server's reserved default Thread credential when
+   Matter is selected (restoring the OTBR dataset always requires this):
 
    ```bash
    sudo ./lisa-edge matter thread sync

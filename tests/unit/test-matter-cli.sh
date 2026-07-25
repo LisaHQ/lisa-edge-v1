@@ -2,10 +2,12 @@
 set -euo pipefail
 
 # Matter CLI behavior end-to-end through the real ws.sh wrapper and the real
-# ws-client.js under node, with docker mocked by a PATH shim: named
-# credential sync and verification, accurate sync wording, no server
-# restart, no dataset in process arguments, drift detection, credential
-# listing, and removal confirmation. No live host is touched.
+# ws-client.js under node, with docker mocked by a PATH shim: reserved
+# default-credential sync and verification (set_thread_dataset without an
+# id), accurate sync wording, no server restart, no dataset in process
+# arguments, drift detection, legacy named-credential handling, credential
+# listing, removal confirmation, and tolerance of the legacy
+# MATTER_THREAD_CREDENTIAL_ID .env variable. No live host is touched.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -24,6 +26,8 @@ trap cleanup EXIT
 TREE="$WORK_DIR/tree"
 mkdir -p "$TREE"
 cp -a "$REPO_ROOT/lisa-edge" "$REPO_ROOT/lib" "$REPO_ROOT/services" "$REPO_ROOT/ops" "$TREE/"
+# The legacy MATTER_THREAD_CREDENTIAL_ID line stays in the .env on purpose:
+# upgraded deployments still carry it and it must be ignored, never fatal.
 cat > "$TREE/.env" <<'EOF'
 LISA_COMPOSE_SERVICES="matter otbr"
 MATTER_SERVER_PORT=5580
@@ -32,9 +36,14 @@ MATTER_THREAD_CREDENTIAL_ID=lisa-home-01
 EOF
 
 # Mocked `ws` module (same protocol mock as test-matter-ws-client.sh).
+# Scenarios: ok (configured default + legacy named duplicate), mismatch
+# (drifted default), legacy-only (named entry only, default unconfigured),
+# reject. Command frames are appended to WS_MSG_LOG for wire assertions.
 mkdir -p "$WORK_DIR/node_modules/ws"
 cat > "$WORK_DIR/node_modules/ws/index.js" <<'EOF'
 const { EventEmitter } = require("events");
+const fs = require("fs");
+let defaultConfigured = false;
 class WebSocket extends EventEmitter {
   constructor(url) {
     super();
@@ -45,11 +54,32 @@ class WebSocket extends EventEmitter {
       this.emit("message", JSON.stringify({
         schema_version: 12, min_supported_schema_version: 11,
         sdk_version: "0.17.5", wifi_credentials_set: false,
-        thread_credentials_set: true, bluetooth_enabled: true,
+        thread_credentials_set: scenario !== "legacy-only",
+        bluetooth_enabled: true,
       }));
     });
   }
+  threadEntries() {
+    const scenario = process.env.MOCK_SCENARIO || "ok";
+    if (scenario === "mismatch") {
+      // Drifted default (null id = reserved default) plus the legacy entry.
+      return [{ id: "lisa-home-01", networkName: "OTHER-NET", extPanId: "9999999999999999" },
+              { id: null, networkName: "OTHER-NET", extPanId: "9999999999999999" }];
+    }
+    if (scenario === "legacy-only") {
+      // Migration starting point: named entry only, default unconfigured
+      // until a sync in this process populates it.
+      const entries = [{ id: "lisa-home-01", networkName: "LISA-HOME-01", extPanId: "1122334455667788" }];
+      if (defaultConfigured) {
+        entries.push({ id: null, networkName: "LISA-HOME-01", extPanId: "1122334455667788" });
+      }
+      return entries;
+    }
+    return [{ id: "lisa-home-01", networkName: "LISA-HOME-01", extPanId: "1122334455667788" },
+            { id: null, networkName: "LISA-HOME-01", extPanId: "1122334455667788" }];
+  }
   send(raw) {
+    if (process.env.WS_MSG_LOG) fs.appendFileSync(process.env.WS_MSG_LOG, raw + "\n");
     const msg = JSON.parse(raw);
     const scenario = process.env.MOCK_SCENARIO || "ok";
     setImmediate(() => {
@@ -59,13 +89,20 @@ class WebSocket extends EventEmitter {
           this.emit("message", JSON.stringify({ message_id: msg.message_id, error_code: 9, details: "rejected by server" }));
           return;
         }
+        if (msg.args.id === undefined) defaultConfigured = true;
         this.emit("message", JSON.stringify({ message_id: msg.message_id, result: null }));
+      } else if (msg.command === "server_info") {
+        this.emit("message", JSON.stringify({
+          message_id: msg.message_id,
+          result: {
+            schema_version: 12, min_supported_schema_version: 11,
+            sdk_version: "0.17.5", wifi_credentials_set: false,
+            thread_credentials_set: scenario === "legacy-only" ? defaultConfigured : true,
+            bluetooth_enabled: true,
+          },
+        }));
       } else if (msg.command === "get_all_credentials") {
-        const entries = scenario === "mismatch"
-          ? [{ id: "lisa-home-01", networkName: "OTHER-NET", extPanId: "9999999999999999" }]
-          : [{ id: "lisa-home-01", networkName: "LISA-HOME-01", extPanId: "1122334455667788" },
-             { id: "default", networkName: "OldNet", extPanId: "8877665544332211" }];
-        this.emit("message", JSON.stringify({ message_id: msg.message_id, result: { wifi: [], thread: entries } }));
+        this.emit("message", JSON.stringify({ message_id: msg.message_id, result: { wifi: [], thread: this.threadEntries() } }));
       } else if (msg.command === "get_fabric_label") {
         this.emit("message", JSON.stringify({ message_id: msg.message_id, result: { fabric_label: "LISA Home" } }));
       } else if (msg.command === "get_nodes") {
@@ -88,6 +125,8 @@ export MOCK_OTBR_DATASET="$OTBR_DATASET"
 
 ARGV_LOG="$WORK_DIR/docker-argv.log"
 export ARGV_LOG
+WS_MSG_LOG="$WORK_DIR/ws-messages.log"
+export WS_MSG_LOG
 mkdir -p "$WORK_DIR/bin"
 cat > "$WORK_DIR/bin/docker" <<EOF
 #!/usr/bin/env bash
@@ -132,10 +171,12 @@ export PATH="$WORK_DIR/bin:$PATH"
 THREAD_CLI="$TREE/services/matter-server/thread.sh"
 CRED_CLI="$TREE/services/matter-server/credentials.sh"
 
-# --- sync --from-otbr succeeds with accurate wording --------------------------
+# --- sync --from-otbr targets the reserved default with accurate wording ------
 : > "$ARGV_LOG"
+: > "$WS_MSG_LOG"
 output="$(bash "$THREAD_CLI" sync --from-otbr)" || fail "sync --from-otbr failed: $output"
-grep -q "stored as 'lisa-home-01'" <<<"$output" || fail "sync must name the credential entry"
+grep -q 'reserved default credential' <<<"$output" || fail "sync must name the default credential slot"
+grep -q 'thread_credentials_set: true' <<<"$output" || fail "sync must report thread_credentials_set"
 grep -q 'identity fields match' <<<"$output" || fail "sync must use identity-field language"
 grep -q 'Network Key' <<<"$output" || fail "sync must state that the network key is not comparable"
 grep -q 'NOT restarted' <<<"$output" || fail "sync must state the server was not restarted"
@@ -145,12 +186,31 @@ fi
 if grep -qi "$OTBR_DATASET" <<<"$output"; then
   fail "sync output must never contain the dataset"
 fi
+# The wire call must OMIT the id field (upstream reserved-default semantics).
+sync_frame="$(grep '"command":"set_thread_dataset"' "$WS_MSG_LOG")" ||
+  fail "sync must send set_thread_dataset"
+if grep -q '"id"' <<<"$sync_frame"; then
+  fail "sync must not send an id field for the reserved default, sent: $sync_frame"
+fi
 # The dataset must never appear in any docker process argument.
 if grep -qi "$OTBR_DATASET" "$ARGV_LOG"; then
   fail "the dataset must not be passed through process arguments"
 fi
 if grep -qiE 'restart|stop lisa-matter|start lisa-matter' "$ARGV_LOG"; then
   fail "sync must not restart the Matter server"
+fi
+
+# --- migration path: legacy named entry only, then sync populates default -----
+: > "$WS_MSG_LOG"
+output="$(MOCK_SCENARIO=legacy-only bash "$THREAD_CLI" sync --from-otbr)" ||
+  fail "sync must succeed while only the legacy named credential exists: $output"
+grep -q 'reserved default credential' <<<"$output" || fail "migration sync must target the default"
+sync_frame="$(grep '"command":"set_thread_dataset"' "$WS_MSG_LOG")"
+if grep -q '"id"' <<<"$sync_frame"; then
+  fail "migration sync must not send an id field, sent: $sync_frame"
+fi
+if grep -q '"command":"remove_thread_dataset"' "$WS_MSG_LOG"; then
+  fail "sync must never delete the legacy named credential"
 fi
 
 # --- sync --file and --stdin ---------------------------------------------------
@@ -177,8 +237,9 @@ rc=0
 bash "$THREAD_CLI" sync --bogus >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "unknown sync option must exit 2, got $rc"
 rc=0
-bash "$THREAD_CLI" sync --id 'BAD ID' >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 2 ] || fail "invalid credential id must exit 2, got $rc"
+output="$(bash "$THREAD_CLI" sync --id lisa-home-01 2>&1)" || rc=$?
+[ "$rc" -eq 2 ] || fail "sync --id must be rejected (default-only interface), got $rc"
+grep -q 'reserved default' <<<"$output" || fail "sync --id rejection must explain the default model"
 rc=0
 bash "$THREAD_CLI" bogus >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "unknown thread subcommand must exit 2, got $rc"
@@ -195,9 +256,14 @@ output="$(MOCK_SCENARIO=mismatch bash "$THREAD_CLI" sync --from-otbr 2>&1)" || r
 [ "$rc" -eq 1 ] || fail "stored-summary mismatch must exit 1, got $rc"
 grep -qi 'does not match' <<<"$output" || fail "mismatch must be explained"
 
-# --- thread status: match and drift --------------------------------------------
+# --- thread status: match, drift, and legacy-only ------------------------------
 output="$(bash "$THREAD_CLI" status)" || fail "thread status (in sync) failed: $output"
-grep -q 'No detectable Thread credential drift' <<<"$output" ||
+grep -q 'Default credential:' <<<"$output" || fail "status must report the default credential slot"
+grep -q 'configured -> LISA-HOME-01' <<<"$output" ||
+  fail "status must show the default credential's network summary"
+grep -q 'legacy duplicate of the default' <<<"$output" ||
+  fail "status must mark the matching named entry as a legacy duplicate"
+grep -q 'No detectable Thread' <<<"$output" ||
   fail "in-sync status must use the accurate no-drift wording"
 grep -q 'expected to WORK' <<<"$output" || fail "in-sync status must state commissioning readiness"
 
@@ -206,12 +272,33 @@ output="$(MOCK_SCENARIO=mismatch bash "$THREAD_CLI" status 2>&1)" || rc=$?
 [ "$rc" -eq 1 ] || fail "drifted status must exit nonzero, got $rc"
 grep -q 'DRIFT' <<<"$output" || fail "drift must be reported"
 grep -q 'expected to FAIL' <<<"$output" || fail "drifted status must state commissioning impact"
+grep -q 'matter thread sync' <<<"$output" || fail "drifted status must point at the sync command"
+
+# A matching named credential with an unconfigured default must NOT be ready.
+rc=0
+output="$(MOCK_SCENARIO=legacy-only bash "$THREAD_CLI" status 2>&1)" || rc=$?
+[ "$rc" -eq 1 ] || fail "legacy-only status must exit nonzero, got $rc"
+grep -q 'NOT CONFIGURED' <<<"$output" || fail "legacy-only status must report the default as unconfigured"
+grep -q 'expected to FAIL' <<<"$output" || fail "legacy-only status must state commissioning impact"
+grep -q 'named entries' <<<"$output" ||
+  fail "legacy-only status must explain that named entries do not make commissioning ready"
 
 # --- credentials list ---------------------------------------------------------------
 output="$(bash "$CRED_CLI" list)" || fail "credentials list failed"
+grep -q 'Reserved default credential' <<<"$output" || fail "credentials list must lead with the default slot"
+grep -q 'configured -> network LISA-HOME-01' <<<"$output" ||
+  fail "credentials list must show the configured default summary"
 grep -q 'lisa-home-01' <<<"$output" || fail "credentials list must show the named entry"
-grep -q 'reserved default' <<<"$output" || fail "credentials list must mark the reserved default entry"
+grep -q 'legacy duplicate of the default' <<<"$output" ||
+  fail "credentials list must mark the legacy duplicate"
 grep -q '1122334455667788' <<<"$output" || fail "credentials list must show the extended PAN ID"
+
+# The unconfigured default must never be presented as configured.
+output="$(MOCK_SCENARIO=legacy-only bash "$CRED_CLI" list)" || fail "legacy-only credentials list failed"
+grep -q 'NOT CONFIGURED' <<<"$output" ||
+  fail "credentials list must mark an unconfigured default"
+grep -q 'matter thread sync' <<<"$output" ||
+  fail "credentials list must point at the sync command when the default is unconfigured"
 rc=0
 bash "$CRED_CLI" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "credentials without 'list' must exit 2, got $rc"
@@ -224,6 +311,20 @@ rc=0
 output="$(printf 'no\n' | bash "$THREAD_CLI" remove --id lisa-home-01 2>&1)" || rc=$?
 [ "$rc" -eq 1 ] || fail "refused removal must exit 1, got $rc"
 grep -q 'Aborted' <<<"$output" || fail "refused removal must report Aborted"
+grep -q 'legacy' <<<"$output" || fail "named removal must mention the legacy cleanup context"
+
+# remove --id default is normalized to the reserved-default operation (no id
+# on the wire).
+: > "$WS_MSG_LOG"
+rc=0
+output="$(printf 'REMOVE\n' | MOCK_SCENARIO=legacy-only bash "$THREAD_CLI" remove --id default 2>&1)" || rc=$?
+[ "$rc" -eq 0 ] || fail "confirmed default removal must succeed, got $rc: $output"
+grep -q 'RESERVED DEFAULT' <<<"$output" || fail "default removal must warn about the default slot"
+remove_frame="$(grep '"command":"remove_thread_dataset"' "$WS_MSG_LOG")" ||
+  fail "default removal must send remove_thread_dataset"
+if grep -q '"id"' <<<"$remove_frame"; then
+  fail "remove --id default must omit the id field on the wire, sent: $remove_frame"
+fi
 
 # --- matter reset: argument validation and confirmation refusal ---------------
 RESET_CLI="$TREE/services/matter-server/data/reset.sh"

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Health outcome model: HEALTHY, DEGRADED (BLE off, credential drift, timer
-# gaps), FAILED (Matter WebSocket down), strict-mode exit codes, and the
-# guarantee that a degraded run never prints a generic success message.
-# Docker, systemd, and the Matter server are mocked; a local TCP listener
-# stands in for the Matter port.
+# Health outcome model: HEALTHY, DEGRADED (BLE off, default-credential
+# drift/missing/unconfigured — including a matching named credential that
+# must never count — timer gaps), FAILED (Matter WebSocket down),
+# strict-mode exit codes, and the guarantee that a degraded run never prints
+# a generic success message. Docker, systemd, and the Matter server are
+# mocked; a local TCP listener stands in for the Matter port.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -37,7 +38,7 @@ cat > "$TREE/.env" <<EOF
 LISA_COMPOSE_SERVICES="matter otbr"
 MATTER_SERVER_PORT=$MATTER_PORT
 MATTER_LISTEN_ADDRESS=127.0.0.1
-MATTER_THREAD_CREDENTIAL_ID=lisa-home-01
+MATTER_THREAD_CREDENTIAL_ID=legacy-ignored-value
 THREAD_NETWORK_NAME=LISA-HOME-01
 LISA_HEALTH_WAIT_ATTEMPTS=2
 LISA_HEALTH_WAIT_DELAY_SECONDS=0
@@ -61,7 +62,7 @@ class WebSocket extends EventEmitter {
       this.emit("message", JSON.stringify({
         schema_version: 12, min_supported_schema_version: 11,
         sdk_version: "0.17.5", wifi_credentials_set: false,
-        thread_credentials_set: true,
+        thread_credentials_set: !["missing-credential", "named-only", "creds-unset"].includes(scenario),
         bluetooth_enabled: scenario !== "ble-off",
       }));
     });
@@ -71,10 +72,19 @@ class WebSocket extends EventEmitter {
     const scenario = process.env.MOCK_SCENARIO || "ok";
     setImmediate(() => {
       if (msg.command === "get_all_credentials") {
+        // The reserved default entry is reported with a null id (upstream
+        // default semantics); a legacy named entry rides along in most
+        // scenarios and must never influence readiness.
         const entries = scenario === "drift"
-          ? [{ id: "lisa-home-01", networkName: "OLD-NET", extPanId: "9999999999999999" }]
+          ? [{ id: "lisa-home-01", networkName: "LISA-HOME-01", extPanId: "1122334455667788" },
+             { id: null, networkName: "OLD-NET", extPanId: "9999999999999999" }]
           : scenario === "missing-credential" ? []
-          : [{ id: "lisa-home-01", networkName: "LISA-HOME-01", extPanId: "1122334455667788" }];
+          : scenario === "named-only"
+            ? [{ id: "lisa-home-01", networkName: "LISA-HOME-01", extPanId: "1122334455667788" }]
+          : scenario === "empty-default"
+            ? [{ id: null, networkName: "", extPanId: "" }]
+          : [{ id: "lisa-home-01", networkName: "LISA-HOME-01", extPanId: "1122334455667788" },
+             { id: null, networkName: "LISA-HOME-01", extPanId: "1122334455667788" }];
         this.emit("message", JSON.stringify({ message_id: msg.message_id, result: { wifi: [], thread: entries } }));
       } else {
         this.emit("message", JSON.stringify({ message_id: msg.message_id, result: null }));
@@ -178,10 +188,27 @@ grep -q 'Overall status: DEGRADED' <<<"$output" || fail "drift must report DEGRA
 grep -q 'identity fields differ' <<<"$output" || fail "drift must be described"
 grep -q 'matter thread sync' <<<"$output" || fail "drift must point at the sync command"
 
-# --- DEGRADED: missing credential ---------------------------------------------------
+# --- DEGRADED: missing default credential --------------------------------------------
 output="$(MOCK_SCENARIO=missing-credential bash "$HEALTH" 2>&1)" ||
-  fail "missing credential must not fail outright"
-grep -q "credential 'lisa-home-01' is missing" <<<"$output" || fail "missing credential must be named"
+  fail "missing default credential must not fail outright"
+grep -q 'default Thread credential is not configured' <<<"$output" ||
+  fail "the unconfigured default credential must be named"
+grep -q 'Overall status: DEGRADED' <<<"$output" || fail "missing default must degrade"
+
+# --- DEGRADED: a matching NAMED credential must never count as ready -----------------
+output="$(MOCK_SCENARIO=named-only bash "$HEALTH" 2>&1)" ||
+  fail "named-only must not fail outright"
+grep -q 'default Thread credential is not configured' <<<"$output" ||
+  fail "a matching named credential must not mask the unconfigured default"
+grep -q 'Overall status: DEGRADED' <<<"$output" || fail "named-only must degrade"
+
+# --- DEGRADED: empty always-present default summary with creds-set flag --------------
+# thread_credentials_set=true but an empty default summary is still unconfigured.
+output="$(MOCK_SCENARIO=empty-default bash "$HEALTH" 2>&1)" ||
+  fail "empty-default must not fail outright"
+grep -q 'default Thread credential is not configured' <<<"$output" ||
+  fail "an empty default summary must be treated as unconfigured"
+grep -q 'Overall status: DEGRADED' <<<"$output" || fail "empty-default must degrade"
 
 # --- DEGRADED: inactive backup timer --------------------------------------------------
 output="$(MOCK_TIMER_STATE=inactive bash "$HEALTH" 2>&1)" || fail "inactive timer must not fail outright"

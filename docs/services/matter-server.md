@@ -27,7 +27,7 @@ Use `sudo ./lisa-edge setup` to select it. The wizard asks for
 `MATTER_SERVER_PORT` (passed to the server as its listen port and used by
 health checks), `MATTER_LISTEN_ADDRESS`, an optional
 `MATTER_PRIMARY_INTERFACE`, the Bluetooth adapter (detected from
-`/sys/class/bluetooth/`), the fabric label, the Thread credential ID, the
+`/sys/class/bluetooth/`), the fabric label, the
 Matter data backup directory and restore policy, and can stage a data
 restore or fabric reset for the next deploy. Deploy and verify:
 
@@ -39,25 +39,28 @@ sudo ./lisa-edge matter status
 
 ## Naming model
 
-Four independent names, four different things:
+Three independent names, three different things:
 
 | Setting | Default | Names |
 | --- | --- | --- |
 | `LISA_EDGE_HOSTNAME` | `lisa-edge-01` | the infrastructure host |
 | `THREAD_NETWORK_NAME` | `LISA-HOME-01` | the Thread mesh (the logical site network) |
 | `MATTER_FABRIC_LABEL` | `LISA Home` | the Matter fabric label shown on devices |
-| `MATTER_THREAD_CREDENTIAL_ID` | `lisa-home-01` | the named Thread credential entry stored on the Matter server |
 
 The Thread network and the Matter fabric outlive any specific host or border
-router, so none of them are named after hardware.
+router, so none of them are named after hardware. The Matter server's
+reserved `default` Thread credential slot is an implementation detail, not a
+user-facing identity: it holds a copy of the Thread dataset, it is not the
+Thread network name, and it is never configured by name.
 
 ## Thread credential management
 
 The server stores a copy of OTBR's Thread credentials and hands it to new
 devices during commissioning; OTBR's active operational dataset stays the
-authoritative network configuration. WebSocket schema 12 supports multiple
-named credential entries, and LISA Edge stores its entry under
-`MATTER_THREAD_CREDENTIAL_ID`:
+authoritative network configuration. LISA Edge stores that copy in the
+Matter server's RESERVED DEFAULT Thread credential — the entry the API uses
+when no credential ID is supplied, which is exactly what Home Assistant and
+other default-API clients read and write when they commission devices:
 
 ```bash
 sudo ./lisa-edge matter thread sync            # from OTBR (default)
@@ -68,14 +71,51 @@ sudo ./lisa-edge matter thread status          # relationship with OTBR
 sudo ./lisa-edge matter thread remove --id <id>
 ```
 
-Sync validates the dataset, sends `set_thread_dataset` with the credential
-ID over one WebSocket connection, verifies the stored summary through
+Sync validates the dataset, sends `set_thread_dataset` without an `id`
+field (upstream reserved-default semantics) over one WebSocket connection,
+verifies that the server reports `thread_credentials_set=true` and that the
+default entry's summary is present through `server_info` and
 `get_all_credentials`, and does NOT restart the server. The verification is
-honest about its limits: the API returns the credential ID, network name and
-extended PAN ID, so those identity fields are compared; the network key and
-PSKc are never returned and therefore never claimed as verified. The raw
+honest about its limits: the API returns the network name and extended PAN
+ID, so those identity fields are compared; the network key and PSKc are
+never returned and therefore never claimed as verified or compared. The raw
 dataset is never accepted as a command-line argument and never appears in
-process listings, logs, or error messages.
+process listings, logs, or error messages. Changing the stored credential
+affects FUTURE commissioning only; already commissioned devices are not
+modified.
+
+Named Thread credentials (WebSocket schema 12) remain an upstream advanced
+capability. LISA Edge does not use them for commissioning:
+`matter credentials list` shows them, and `matter thread remove --id <id>`
+removes them explicitly. Readiness (health, doctor, status) is always
+decided by the reserved default credential — a named entry that matches
+OTBR never makes commissioning ready on its own.
+
+### Migrating from the named credential (`lisa-home-01`)
+
+Deployments provisioned before this model stored the dataset as the named
+credential `lisa-home-01` (configured via the now-legacy
+`MATTER_THREAD_CREDENTIAL_ID` variable) and left the reserved default entry
+unconfigured. Migration is one command, safe and idempotent:
+
+```bash
+sudo ./lisa-edge matter thread sync
+sudo ./lisa-edge matter thread status
+```
+
+Sync populates and verifies the default credential from OTBR's active
+dataset; nothing is deleted automatically. The leftover `lisa-home-01`
+entry is harmless — status and `matter credentials list` mark it as a
+legacy duplicate and it is ignored for readiness. Remove it ONLY after
+`matter thread status` confirms the default credential is configured and
+matches OTBR:
+
+```bash
+sudo ./lisa-edge matter thread remove --id lisa-home-01
+```
+
+A leftover `MATTER_THREAD_CREDENTIAL_ID` line in `.env` is ignored and does
+not break deploy, configure, update, or health; remove it at leisure.
 
 ## BLE commissioning
 
@@ -145,8 +185,8 @@ DEGRADED on drift. Fix it with:
 sudo ./lisa-edge matter thread sync
 ```
 
-which stores OTBR's active dataset over the WebSocket API as the named
-credential and verifies it without restarting the server
+which stores OTBR's active dataset over the WebSocket API in the reserved
+default credential and verifies it without restarting the server
 (`sudo ./lisa-edge otbr dataset export --output <file>` produces the same
 dataset for manual use elsewhere). Then factory-reset the device — failed
 attempts leave stale state on it — and commission again.

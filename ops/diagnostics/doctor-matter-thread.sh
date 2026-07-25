@@ -204,30 +204,37 @@ if [ "$MATTER_SELECTED" -eq 1 ]; then
           "sudo ./lisa-edge deploy applies DEFAULT_FABRIC_LABEL; a fabric created before this setting keeps its old label until reset"
       fi
 
-      credential_id="${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}"
-      found=0
-      stored_name=""
-      stored_xpan=""
-      while IFS=$'\t' read -r id name xpan; do
-        [ "$id" = "$credential_id" ] || continue
-        found=1
-        stored_name="$name"
-        stored_xpan="$xpan"
-      done < <(matter_ws_thread_entries "$MATTER_WS_OUTPUT")
-      if [ "$found" -eq 1 ]; then
-        pass "Thread credential '$credential_id' is stored (network: ${stored_name:-?})"
+      # Readiness is decided by the RESERVED DEFAULT credential only; a
+      # named credential never makes commissioning ready.
+      default_configured=0
+      matter_ws_default_configured "$MATTER_WS_OUTPUT" && default_configured=1
+      default_name="$(matter_ws_field "$MATTER_WS_OUTPUT" default.network_name)"
+      default_xpan="$(matter_ws_field "$MATTER_WS_OUTPUT" default.ext_pan_id)"
+      if [ "$default_configured" -eq 1 ]; then
+        pass "default Thread credential is configured (network: ${default_name:-?})"
         if [ -n "$OTBR_XPAN" ]; then
-          if [ "$stored_name" = "$OTBR_NAME" ] && [ "${stored_xpan^^}" = "${OTBR_XPAN^^}" ]; then
-            pass "OTBR and Matter Thread identity fields match (no detectable drift)"
+          if [ "$default_name" = "$OTBR_NAME" ] && [ "${default_xpan^^}" = "${OTBR_XPAN^^}" ]; then
+            pass "OTBR and Matter default-credential identity fields match (no detectable drift)"
           else
-            fail "OTBR/Matter Thread identity drift (OTBR: ${OTBR_NAME:-?}/${OTBR_XPAN:-?}, matter: ${stored_name:-?}/${stored_xpan:-?})" \
+            fail "OTBR/Matter Thread identity drift (OTBR: ${OTBR_NAME:-?}/${OTBR_XPAN:-?}, matter default: ${default_name:-?}/${default_xpan:-?})" \
               "sudo ./lisa-edge matter thread sync"
           fi
         fi
       else
-        fail "Thread credential '$credential_id' is not stored on the Matter server" \
+        fail "the Matter server's default Thread credential is not configured (thread_credentials_set=false or empty summary)" \
           "sudo ./lisa-edge matter thread sync"
       fi
+      while IFS=$'\t' read -r id name xpan; do
+        [ "$id" = "default" ] && continue
+        if [ "$default_configured" -eq 1 ] &&
+           [ "$name" = "$default_name" ] && [ "${xpan^^}" = "${default_xpan^^}" ]; then
+          warn "legacy named Thread credential '$id' duplicates the default (not used for commissioning)" \
+            "after verifying the default: sudo ./lisa-edge matter thread remove --id $id"
+        else
+          warn "named Thread credential '$id' is stored (network: ${name:-?}); not used for commissioning" \
+            "keep it only if another commissioner needs it; remove with: sudo ./lisa-edge matter thread remove --id $id"
+        fi
+      done < <(matter_ws_thread_entries "$MATTER_WS_OUTPUT")
     else
       fail "Matter WebSocket API check failed (client exit $rc)" \
         "sudo ./lisa-edge matter status; docker logs --tail 30 lisa-matter"

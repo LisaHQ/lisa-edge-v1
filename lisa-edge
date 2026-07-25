@@ -70,9 +70,9 @@ ${C_SECTION}Thread border router (OTBR):${C_RESET}
 ${C_SECTION}Matter server:${C_RESET}
   ${C_CMD}matter status${C_RESET}                 Show Matter server state (secret-safe)
   ${C_CMD}matter credentials list${C_RESET}       List stored Thread credential summaries
-  ${C_CMD}matter thread status${C_RESET}          Compare stored credentials with OTBR
-  ${C_CMD}matter thread sync${C_RESET} [options]  Store OTBR's dataset as a named credential
-  ${C_CMD}matter thread remove${C_RESET} --id <id> Remove a stored Thread credential
+  ${C_CMD}matter thread status${C_RESET}          Compare the default credential with OTBR
+  ${C_CMD}matter thread sync${C_RESET} [options]  Store OTBR's dataset in the default Thread credential
+  ${C_CMD}matter thread remove${C_RESET} --id <id> Remove a stored Thread credential entry
   ${C_CMD}matter reset${C_RESET}                  Back up and wipe the Matter fabric (re-commission!)
 
 ${C_SECTION}Data protection:${C_RESET}

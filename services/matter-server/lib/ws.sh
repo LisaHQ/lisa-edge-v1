@@ -13,9 +13,16 @@
 MATTER_WS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MATTER_WS_CLIENT_JS="$MATTER_WS_LIB_DIR/ws-client.js"
 
-# The WebSocket schema generation required for named Thread credentials,
-# get_all_credentials and fabric-label reads (matterjs-server >= 1.2.0).
+# The WebSocket schema generation required for get_all_credentials and
+# fabric-label reads (matterjs-server >= 1.2.0).
 MATTER_WS_MIN_SCHEMA=12
+
+# The Matter server's reserved default Thread credential slot: LISA Edge's
+# single managed commissioning credential. The ws-client normalizes this ID
+# to the upstream default semantics (API calls without an `id` field), which
+# is the entry Home Assistant and other default-API clients use.
+# shellcheck disable=SC2034
+MATTER_WS_DEFAULT_ID="default"
 
 # Stable ws-client.js exit codes (keep in sync with the JS client).
 # shellcheck disable=SC2034
@@ -106,6 +113,19 @@ matter_ws_thread_entries() {
     xpan="$(matter_ws_field "$output" "thread_credential.$index.ext_pan_id")"
     printf '%s\t%s\t%s\n' "$id" "$name" "$xpan"
   done
+}
+
+# Reserved-default credential summary helpers, reading the default.* fields
+# printed by the ws-client for the `credentials` and `status` commands.
+# "Configured" requires a non-empty identity summary AND the server
+# reporting thread_credentials_set=true; the always-present empty default
+# summary alone never counts.
+matter_ws_default_configured() {
+  [ "$(matter_ws_field "$1" default.configured)" = "true" ]
+}
+
+matter_ws_default_present() {
+  [ "$(matter_ws_field "$1" default.present)" = "true" ]
 }
 
 # True when the lisa-matter container is running.

@@ -96,7 +96,8 @@ dataset and the Matter fabric data into their own backup directories.
 The OTBR operational dataset and the Matter fabric data are separate but
 related recovery assets: the dataset is the Thread network's identity, the
 Matter store holds the fabric credentials plus a COPY of the Thread
-credentials used for commissioning. Restoring one without the other leaves a
+credentials used for commissioning (kept in the server's reserved default
+Thread credential). Restoring one without the other leaves a
 detectable identity drift that `lisa-edge health` reports; after restoring an
 OTBR dataset, re-sync with `sudo ./lisa-edge matter thread sync`.
 

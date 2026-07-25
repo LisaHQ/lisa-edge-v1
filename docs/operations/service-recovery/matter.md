@@ -79,7 +79,8 @@ preserving it first as a `pre-reset` archive (with checksum and metadata
 sidecars), recreates the empty store with safe ownership, restarts the
 server, and verifies over the WebSocket API that it starts with an empty
 fabric. Every device must be re-commissioned afterwards, and the Thread
-credentials must be stored again with `sudo ./lisa-edge matter thread sync`.
+credentials must be stored again in the reserved default credential with
+`sudo ./lisa-edge matter thread sync`.
 The wizard can also stage a reset for the next deploy. Reset is never part
 of a normal deploy or update.
 

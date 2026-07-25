@@ -12,9 +12,10 @@ usage() {
   cat <<'EOF'
 Usage: lisa-edge matter credentials list
 
-Show the Thread credential entries stored on the Matter server: credential
-ID, network name, extended PAN ID, and whether the entry is the reserved
-default. Secrets are never shown.
+Show the Thread credential entries stored on the Matter server. The
+RESERVED DEFAULT credential is LISA Edge's managed commissioning
+credential; named entries are an upstream advanced capability (legacy
+duplicates are marked). Secrets are never shown.
 
 Options:
   -h, --help  Show this help.
@@ -66,18 +67,47 @@ if [ "$RC" -ne 0 ]; then
   exit 1
 fi
 
-CONFIGURED_ID="${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}"
-COUNT="$(matter_ws_field "$OUTPUT" thread_credential_count)"
-if [ "${COUNT:-0}" = "0" ]; then
-  echo "No Thread credentials are stored on the Matter server."
-  echo "Store one with: sudo ./lisa-edge matter thread sync"
-  exit 0
+# Reserved default credential: the managed commissioning credential. The
+# always-present empty default summary counts as configured only when the
+# server also reports thread_credentials_set=true.
+DEFAULT_CONFIGURED=0
+matter_ws_default_configured "$OUTPUT" && DEFAULT_CONFIGURED=1
+DEFAULT_NAME="$(matter_ws_field "$OUTPUT" default.network_name)"
+DEFAULT_XPAN="$(matter_ws_field "$OUTPUT" default.ext_pan_id)"
+
+if [ "$DEFAULT_CONFIGURED" -eq 1 ]; then
+  echo "Reserved default credential (used for commissioning):"
+  echo "  configured -> network ${DEFAULT_NAME:-?} (extended PAN ID ${DEFAULT_XPAN:-?})"
+else
+  echo "Reserved default credential (used for commissioning):"
+  if matter_ws_default_present "$OUTPUT"; then
+    echo "  NOT CONFIGURED (empty summary or thread_credentials_set=false)"
+  else
+    echo "  NOT CONFIGURED (no entry stored)"
+  fi
+  echo "  New Thread commissioning is expected to fail; store OTBR's dataset with:"
+  echo "  sudo ./lisa-edge matter thread sync"
 fi
 
-printf '%-24s %-18s %-18s %s\n' "ID" "NETWORK NAME" "EXTENDED PAN ID" "DEFAULT"
+# Named entries: upstream advanced capability, never used by LISA Edge for
+# commissioning. Entries matching the configured default are legacy
+# duplicates (safe to remove after the default has been verified).
+NAMED_ROWS=""
 while IFS=$'\t' read -r id name xpan; do
-  default_marker="-"
-  [ "$id" = "default" ] && default_marker="reserved default"
-  [ "$id" = "$CONFIGURED_ID" ] && default_marker="configured (MATTER_THREAD_CREDENTIAL_ID)"
-  printf '%-24s %-18s %-18s %s\n' "$id" "${name:--}" "${xpan:--}" "$default_marker"
+  [ "$id" = "$MATTER_WS_DEFAULT_ID" ] && continue
+  note="not used for commissioning"
+  if [ "$DEFAULT_CONFIGURED" -eq 1 ] &&
+     [ "$name" = "$DEFAULT_NAME" ] && [ "${xpan^^}" = "${DEFAULT_XPAN^^}" ]; then
+    note="legacy duplicate of the default; remove with: matter thread remove --id $id"
+  fi
+  NAMED_ROWS+="$(printf '%-24s %-18s %-18s %s' "$id" "${name:--}" "${xpan:--}" "$note")"$'\n'
 done < <(matter_ws_thread_entries "$OUTPUT")
+
+echo
+if [ -n "$NAMED_ROWS" ]; then
+  echo "Named credentials (advanced upstream capability):"
+  printf '%-24s %-18s %-18s %s\n' "ID" "NETWORK NAME" "EXTENDED PAN ID" "NOTE"
+  printf '%s' "$NAMED_ROWS"
+else
+  echo "No named Thread credentials are stored."
+fi

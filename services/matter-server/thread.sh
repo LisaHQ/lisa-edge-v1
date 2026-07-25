@@ -5,6 +5,13 @@ set -euo pipefail
 # lisa-edge matter thread status|sync|remove). Talks to the Matter server
 # through the shared WebSocket client; never restarts the server and never
 # prints Thread credentials.
+#
+# LISA Edge's managed commissioning credential is the Matter server's
+# RESERVED DEFAULT Thread credential (the entry default-API clients such as
+# Home Assistant use). OTBR's active operational dataset stays authoritative;
+# sync stores one copy of it in the default slot. Named credentials are an
+# upstream advanced capability kept only for inspection and explicit cleanup
+# of legacy entries (e.g. the pre-migration 'lisa-home-01').
 
 EDGE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$EDGE_REPO"
@@ -14,16 +21,19 @@ usage() {
 Usage: lisa-edge matter thread <subcommand> [options]
 
 Subcommands:
-  status                     Show the configured credential ID, the stored
-                             credential summary, the OTBR network summary,
-                             and whether Thread commissioning should work.
-  sync [source] [--id <id>]  Store a Thread dataset on the Matter server as
-                             a named credential and verify the stored
-                             summary. Sources (mutually exclusive):
-                               --from-otbr        OTBR's active dataset (default)
-                               --file <dataset>   read a dataset file
-                               --stdin            read the dataset from stdin
-  remove --id <id>           Remove a stored Thread credential entry.
+  status              Show the reserved default credential's state, the OTBR
+                      network summary, any named (legacy) entries, and
+                      whether Thread commissioning should work.
+  sync [source]       Store a Thread dataset in the Matter server's reserved
+                      default credential (the entry used for commissioning)
+                      and verify the stored summary.
+                      Sources (mutually exclusive):
+                        --from-otbr        OTBR's active dataset (default)
+                        --file <dataset>   read a dataset file
+                        --stdin            read the dataset from stdin
+  remove --id <id>    Remove a stored Thread credential entry. Use a named
+                      ID to clean up legacy entries, or 'default' to clear
+                      the reserved default credential.
 
 Options:
   -h, --help  Show this help.
@@ -82,7 +92,7 @@ report_ws_failure() {
       ;;
     "$MATTER_WS_EXIT_SCHEMA")
       echo "ERROR: the Matter server WebSocket schema is older than $MATTER_WS_MIN_SCHEMA." >&2
-      echo "Named Thread credentials require matterjs-server >= 1.2.0; check MATTER_SERVER_IMAGE." >&2
+      echo "Thread credential management requires matterjs-server >= 1.2.0; check MATTER_SERVER_IMAGE." >&2
       ;;
     "$MATTER_WS_EXIT_VERIFY")
       echo "ERROR: post-command verification failed on the Matter server." >&2
@@ -107,7 +117,7 @@ read_dataset_from_otbr() {
 }
 
 cmd_sync() {
-  local source="" dataset_file="" credential_id="" arg
+  local source="" dataset_file="" arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -127,9 +137,7 @@ cmd_sync() {
         source="stdin"
         ;;
       --id)
-        [ "$#" -ge 2 ] || die_usage "--id requires a credential ID"
-        credential_id="$2"
-        shift
+        die_usage "sync always targets the reserved default credential; --id is not supported"
         ;;
       -h|--help) usage; exit 0 ;;
       -*) die_usage "unknown option: $arg" ;;
@@ -141,8 +149,6 @@ cmd_sync() {
 
   require_env
   load_libs
-  credential_id="${credential_id:-${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}}"
-  lisa_validate_matter_thread_credential_id "$credential_id" || exit 2
 
   DATASET_HEX=""
   case "$source" in
@@ -173,15 +179,16 @@ cmd_sync() {
 
   require_matter_running
 
-  echo "Storing the Thread dataset on the Matter server as credential '$credential_id'..."
+  echo "Storing the Thread dataset in the Matter server's reserved default credential..."
   local output rc=0
-  output="$(matter_ws_run sync "$credential_id" "$DATASET_HEX")" || rc=$?
+  output="$(matter_ws_run sync "$MATTER_WS_DEFAULT_ID" "$DATASET_HEX")" || rc=$?
   # The client never prints the dataset; its key=value output is safe.
   [ "$rc" -eq 0 ] || report_ws_failure "$rc"
 
-  local stored_name stored_xpan
+  local stored_name stored_xpan creds_set
   stored_name="$(matter_ws_field "$output" stored.network_name)"
   stored_xpan="$(matter_ws_field "$output" stored.ext_pan_id)"
+  creds_set="$(matter_ws_field "$output" sync.thread_credentials_set)"
 
   local drift=0
   if [ -n "$expected_name" ] && [ "$stored_name" != "$expected_name" ]; then
@@ -199,10 +206,11 @@ cmd_sync() {
   fi
 
   echo
-  echo "Thread credentials stored as '$credential_id' and verified via"
-  echo "get_all_credentials (WebSocket schema $(matter_ws_field "$output" server.schema_version))."
+  echo "Thread credentials stored in the reserved default credential and verified"
+  echo "(WebSocket schema $(matter_ws_field "$output" server.schema_version))."
   echo "Verified:"
-  echo "- Credential ID: $credential_id"
+  echo "- Credential slot: reserved default (used for commissioning)"
+  echo "- server.thread_credentials_set: ${creds_set:-true}"
   echo "- Network name: ${stored_name:-'(not reported)'}"
   echo "- Extended PAN ID: ${stored_xpan:-'(not reported)'}"
   echo "Not directly comparable (never returned by the API):"
@@ -211,7 +219,8 @@ cmd_sync() {
   echo
   echo "Thread network identity fields match between the dataset and the Matter server."
   echo "The Matter server was NOT restarted; the stored credential takes effect for"
-  echo "the next Thread commissioning immediately."
+  echo "the next Thread commissioning immediately (already commissioned devices are"
+  echo "not modified)."
 }
 
 cmd_remove() {
@@ -237,9 +246,17 @@ cmd_remove() {
   lisa_validate_matter_thread_credential_id "$credential_id" || exit 2
   require_matter_running
 
-  echo "WARNING: removing Thread credential '$credential_id' from the Matter server."
-  echo "If it is the credential used for commissioning, future Thread commissioning"
-  echo "will fail until a dataset is synced again. Existing devices keep working."
+  if [ "$credential_id" = "$MATTER_WS_DEFAULT_ID" ]; then
+    echo "WARNING: clearing the Matter server's RESERVED DEFAULT Thread credential."
+    echo "This is the credential used for Thread commissioning: new commissioning"
+    echo "will fail until you run 'sudo ./lisa-edge matter thread sync' again."
+    echo "Existing devices keep working."
+  else
+    echo "WARNING: removing the named Thread credential '$credential_id' from the"
+    echo "Matter server. Named entries are not used for commissioning; remove legacy"
+    echo "entries only after 'matter thread status' verifies the default credential."
+    echo "Existing devices keep working."
+  fi
   read -r -p "Type REMOVE to continue: " answer
   if [ "$answer" != "REMOVE" ]; then
     echo "Aborted. No changes were made."
@@ -249,7 +266,11 @@ cmd_remove() {
   local output rc=0
   output="$(matter_ws_run remove "$credential_id")" || rc=$?
   [ "$rc" -eq 0 ] || report_ws_failure "$rc"
-  echo "Thread credential '$credential_id' removed and verified absent via get_all_credentials."
+  if [ "$credential_id" = "$MATTER_WS_DEFAULT_ID" ]; then
+    echo "Reserved default Thread credential cleared and verified via get_all_credentials."
+  else
+    echo "Thread credential '$credential_id' removed and verified absent via get_all_credentials."
+  fi
 }
 
 cmd_status() {
@@ -262,8 +283,6 @@ cmd_status() {
 
   require_env
   load_libs
-  local credential_id="${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}"
-  printf '%-28s%s\n' "Configured credential ID:" "$credential_id"
 
   local otbr_name="" otbr_xpan="" otbr_readable=0
   if otbr_container_is_running; then
@@ -291,38 +310,55 @@ cmd_status() {
   output="$(matter_ws_run credentials)" || rc=$?
   [ "$rc" -eq 0 ] || report_ws_failure "$rc"
 
-  local stored_line stored_name="" stored_xpan="" found=0
+  # The commissioning credential is the reserved default entry; named
+  # entries are listed for awareness but never decide readiness.
+  local default_name default_xpan default_configured=0
+  default_name="$(matter_ws_field "$output" default.network_name)"
+  default_xpan="$(matter_ws_field "$output" default.ext_pan_id)"
+  matter_ws_default_configured "$output" && default_configured=1
+
+  if [ "$default_configured" -eq 1 ]; then
+    printf '%-28s%s\n' "Default credential:" "configured -> ${default_name:-?} (extended PAN ID ${default_xpan:-?})"
+  elif matter_ws_default_present "$output"; then
+    printf '%-28s%s\n' "Default credential:" "NOT CONFIGURED (empty summary or thread_credentials_set=false)"
+  else
+    printf '%-28s%s\n' "Default credential:" "NOT CONFIGURED (no reserved default entry)"
+  fi
+
+  # Named entries (upstream advanced capability / legacy duplicates).
+  local id name xpan
   while IFS=$'\t' read -r id name xpan; do
-    if [ "$id" = "$credential_id" ]; then
-      found=1
-      stored_name="$name"
-      stored_xpan="$xpan"
+    [ "$id" = "$MATTER_WS_DEFAULT_ID" ] && continue
+    if [ "$default_configured" -eq 1 ] &&
+       [ "$name" = "$default_name" ] && [ "${xpan^^}" = "${default_xpan^^}" ]; then
+      printf '%-28s%s\n' "Named credential:" "'$id' -> ${name:-?} (legacy duplicate of the default; not used for commissioning)"
+    else
+      printf '%-28s%s\n' "Named credential:" "'$id' -> ${name:-?} (not used for commissioning)"
     fi
   done < <(matter_ws_thread_entries "$output")
 
-  if [ "$found" -eq 1 ]; then
-    printf '%-28s%s\n' "Stored credential:" "$credential_id -> ${stored_name:-?} (extended PAN ID ${stored_xpan:-?})"
-  else
-    printf '%-28s%s\n' "Stored credential:" "MISSING (no entry named '$credential_id')"
+  if [ "$default_configured" -ne 1 ]; then
     echo
+    echo "The reserved default credential is what commissioning uses; named entries"
+    echo "do not make commissioning ready."
     echo "New Thread commissioning is expected to FAIL until you run:"
     echo "  sudo ./lisa-edge matter thread sync"
     exit 1
   fi
 
   if [ "$otbr_readable" -eq 1 ]; then
-    if [ "${stored_name}" = "${otbr_name}" ] && [ "${stored_xpan^^}" = "${otbr_xpan^^}" ]; then
+    if [ "${default_name}" = "${otbr_name}" ] && [ "${default_xpan^^}" = "${otbr_xpan^^}" ]; then
       echo
-      echo "Thread network identity fields match between OTBR and the Matter server"
-      echo "(network name, extended PAN ID). No detectable Thread credential drift."
-      echo "New Thread commissioning is expected to WORK."
+      echo "Thread network identity fields match between OTBR and the Matter server's"
+      echo "default credential (network name, extended PAN ID). No detectable Thread"
+      echo "credential drift. New Thread commissioning is expected to WORK."
     else
       echo
-      echo "DRIFT: the stored credential does not match OTBR's active network:"
-      [ "${stored_name}" != "${otbr_name}" ] &&
-        echo "- network name: OTBR='$otbr_name' matter='$stored_name'"
-      [ "${stored_xpan^^}" != "${otbr_xpan^^}" ] &&
-        echo "- extended PAN ID: OTBR='$otbr_xpan' matter='$stored_xpan'"
+      echo "DRIFT: the default credential does not match OTBR's active network:"
+      [ "${default_name}" != "${otbr_name}" ] &&
+        echo "- network name: OTBR='$otbr_name' matter='$default_name'"
+      [ "${default_xpan^^}" != "${otbr_xpan^^}" ] &&
+        echo "- extended PAN ID: OTBR='$otbr_xpan' matter='$default_xpan'"
       echo "New Thread commissioning is expected to FAIL; re-sync with:"
       echo "  sudo ./lisa-edge matter thread sync"
       exit 1

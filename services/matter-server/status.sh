@@ -104,35 +104,42 @@ else
   NODE_COUNT="$(matter_ws_field "$WS_OUTPUT" node_count)"
   field "Commissioned nodes:" "${NODE_COUNT:-unknown}"
 
-  CREDENTIAL_ID="${MATTER_THREAD_CREDENTIAL_ID:-lisa-home-01}"
-  field "Thread credential ID:" "$CREDENTIAL_ID"
-  STORED_NAME=""
-  STORED_XPAN=""
-  FOUND=0
-  while IFS=$'\t' read -r id name xpan; do
-    if [ "$id" = "$CREDENTIAL_ID" ]; then
-      FOUND=1
-      STORED_NAME="$name"
-      STORED_XPAN="$xpan"
-    fi
-  done < <(matter_ws_thread_entries "$WS_OUTPUT")
-  if [ "$FOUND" -eq 1 ]; then
-    field "Stored credential:" "${STORED_NAME:-?} (extended PAN ID ${STORED_XPAN:-?})"
+  # The commissioning credential is the Matter server's reserved default
+  # entry; named entries never make commissioning ready.
+  DEFAULT_CONFIGURED=0
+  matter_ws_default_configured "$WS_OUTPUT" && DEFAULT_CONFIGURED=1
+  DEFAULT_NAME="$(matter_ws_field "$WS_OUTPUT" default.network_name)"
+  DEFAULT_XPAN="$(matter_ws_field "$WS_OUTPUT" default.ext_pan_id)"
+  if [ "$DEFAULT_CONFIGURED" -eq 1 ]; then
+    field "Default Thread credential:" "configured -> ${DEFAULT_NAME:-?} (extended PAN ID ${DEFAULT_XPAN:-?})"
   else
-    field "Stored credential:" "MISSING"
+    field "Default Thread credential:" "NOT CONFIGURED"
     if lisa_has_service otbr; then
       demote DEGRADED
       echo "  New Thread commissioning is expected to fail; run: sudo ./lisa-edge matter thread sync"
     fi
   fi
+  NAMED_COUNT=0
+  LEGACY_NOTE=""
+  while IFS=$'\t' read -r id name xpan; do
+    [ "$id" = "default" ] && continue
+    NAMED_COUNT=$((NAMED_COUNT + 1))
+    if [ "$DEFAULT_CONFIGURED" -eq 1 ] &&
+       [ "$name" = "$DEFAULT_NAME" ] && [ "${xpan^^}" = "${DEFAULT_XPAN^^}" ]; then
+      LEGACY_NOTE=" (includes legacy duplicate '$id')"
+    fi
+  done < <(matter_ws_thread_entries "$WS_OUTPUT")
+  if [ "$NAMED_COUNT" -gt 0 ]; then
+    field "Named credentials:" "$NAMED_COUNT stored, not used for commissioning$LEGACY_NOTE"
+  fi
 
-  if lisa_has_service otbr && [ "$FOUND" -eq 1 ]; then
+  if lisa_has_service otbr && [ "$DEFAULT_CONFIGURED" -eq 1 ]; then
     if otbr_container_is_running; then
       OTBR_HEX="$(thread_otbr_active_dataset_hex_live)"
       if [ -n "$OTBR_HEX" ]; then
         OTBR_NAME="$(thread_dataset_network_name "$OTBR_HEX")"
         OTBR_XPAN="$(thread_dataset_ext_pan_id "$OTBR_HEX")"
-        if [ "$STORED_NAME" = "$OTBR_NAME" ] && [ "${STORED_XPAN^^}" = "${OTBR_XPAN^^}" ]; then
+        if [ "$DEFAULT_NAME" = "$OTBR_NAME" ] && [ "${DEFAULT_XPAN^^}" = "${OTBR_XPAN^^}" ]; then
           field "OTBR relationship:" "identity fields match (no detectable drift)"
         else
           field "OTBR relationship:" "DRIFT (OTBR: ${OTBR_NAME:-?}/${OTBR_XPAN:-?})"

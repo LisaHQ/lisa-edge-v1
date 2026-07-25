@@ -52,10 +52,14 @@ Select it with `sudo ./lisa-edge setup`, then use `sudo ./lisa-edge deploy`
 and `sudo ./lisa-edge health`. Operator commands: `matter status`,
 `matter credentials list`, `matter thread status|sync|remove`, and
 `matter reset` (backs up, wipes the fabric, and requires re-commissioning
-every device). When OTBR is also selected, health reports DEGRADED if the
-stored credential's identity fields drift from OTBR's active dataset;
-`sudo ./lisa-edge matter thread sync` re-syncs them without restarting the
-server.
+every device). The Thread commissioning credential is the Matter
+server's reserved default entry (populated by `matter thread sync` from
+OTBR's authoritative active dataset). When OTBR is also selected, health
+reports DEGRADED if the default credential is unconfigured or its identity
+fields drift from OTBR's active dataset;
+`sudo ./lisa-edge matter thread sync` re-syncs it without restarting the
+server. Named credentials are an upstream advanced capability, listed but
+never used for readiness.
 
 Owned files: `compose.yml`, `compose.ble.yml`, `compose.primary-interface.yml`,
 `provision.sh`, `status.sh`, `thread.sh`, `credentials.sh`, `lib/`, `data/`

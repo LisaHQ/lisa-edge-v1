@@ -36,9 +36,12 @@ redacted. The complete dataset is only available explicitly:
 `otbr dataset show --show-secret` prints it after a warning, and
 `otbr dataset export --output <file>` writes it atomically to a new file
 with mode `0600` for use in other commissioners.
-`sudo ./lisa-edge matter thread sync` stores it on the Matter server as the
-named credential `MATTER_THREAD_CREDENTIAL_ID`, and `lisa-edge health`
+`sudo ./lisa-edge matter thread sync` stores it in the Matter server's
+reserved default Thread credential (the entry Home Assistant and other
+default-API clients use for commissioning), and `lisa-edge health`
 degrades when the identity fields of the two sides have drifted apart.
+Restoring or replacing the OTBR dataset requires running
+`matter thread sync` again.
 
 ## Creating a Thread network
 
