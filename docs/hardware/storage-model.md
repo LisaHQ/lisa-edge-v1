@@ -35,5 +35,5 @@ For production, sync backups to another machine or NAS.
 
 When `BACKUP_DEST` is a NAS or removable mount, enable mount enforcement so a
 missing mount fails the backup instead of silently writing to the production
-root filesystem. Configure this through `sudo ./lisa-edge setup` or
-`sudo ./lisa-edge configure`.
+root filesystem. Configure this through `sudo ./lisa-edge setup` (a full pass, or the
+`Edit configuration only` action).

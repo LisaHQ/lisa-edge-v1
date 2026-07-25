@@ -9,10 +9,10 @@ Select it through `sudo ./lisa-edge setup`. The wizard accepts `TS_AUTHKEY` and
 `TS_EXTRA_ARGS`; the service uses host networking, `/dev/net/tun` and persists
 state at `${DATA_ROOT}/docker/volumes/tailscale/`.
 
-Deploy and verify:
+Add and verify:
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add vpn-tailscale
 sudo ./lisa-edge health
 docker exec lisa-tailscale tailscale status --peers=false
 ```

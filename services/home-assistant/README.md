@@ -6,8 +6,8 @@
 - Container: `lisa-ha`
 
 Home Assistant uses host networking and stores configuration at
-`${DATA_ROOT}/docker/volumes/homeassistant/`. Select it with
-`sudo ./lisa-edge setup`, then use `sudo ./lisa-edge deploy` and
+`${DATA_ROOT}/docker/volumes/homeassistant/`. Add it with
+`sudo ./lisa-edge service add ha`, then verify with
 `sudo ./lisa-edge health`.
 
 This is a compact-host option. Move larger automation workloads to LISA Brain

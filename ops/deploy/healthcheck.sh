@@ -29,9 +29,12 @@ Run readiness checks for the selected services and report an overall
 HEALTHY, DEGRADED, or FAILED result.
 
 Options:
-  --strict    Exit nonzero (3) when the result is DEGRADED. Without it,
-              DEGRADED exits 0 so the systemd runtime keeps running.
-  -h, --help  Show this help.
+  --strict            Exit nonzero (3) when the result is DEGRADED. Without
+                      it, DEGRADED exits 0 so the systemd runtime keeps
+                      running.
+  --services "keys"   Internal (used by the service lifecycle): limit the
+                      checks to these selected service keys.
+  -h, --help          Show this help.
 
 Exit codes: 0 HEALTHY (or DEGRADED without --strict), 1 FAILED,
 2 usage error, 3 DEGRADED (--strict).
@@ -39,9 +42,15 @@ EOF2
 }
 
 STRICT=0
+SERVICE_FILTER=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --strict) STRICT=1 ;;
+    --services)
+      [ "$#" -ge 2 ] || { echo "ERROR: --services requires a value." >&2; exit 2; }
+      SERVICE_FILTER="$2"
+      shift
+      ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 2 ;;
     *) echo "ERROR: unexpected argument: $1" >&2; usage >&2; exit 2 ;;
@@ -50,7 +59,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ ! -f .env ]; then
-  echo "Missing .env. Run 'sudo ./lisa-edge configure' (or setup) first." >&2
+  echo "Missing .env. Run 'sudo ./lisa-edge setup' first." >&2
   echo "[LISA] Overall status: FAILED"
   exit 1
 fi
@@ -64,6 +73,19 @@ set +a
 . "$EDGE_REPO/lib/compose.sh"
 lisa_build_compose_files "$EDGE_REPO"
 FILES=("${LISA_COMPOSE_FILES[@]}")
+
+# True when a service's checks should run: it must be selected, and - when
+# an explicit --services filter is given - part of that filter. The default
+# (no filter) preserves the full-stack behavior and exit codes.
+health_wanted() {
+  local wanted="$1" entry
+  lisa_has_service "$wanted" || return 1
+  [ -n "$SERVICE_FILTER" ] || return 0
+  for entry in $SERVICE_FILTER; do
+    [ "$(lisa_normalize_service_id "$entry")" = "$wanted" ] && return 0
+  done
+  return 1
+}
 
 FAILURES=()
 DEGRADATIONS=()
@@ -265,15 +287,16 @@ check_matter() {
 echo "[LISA] Checking containers..."
 docker compose --env-file .env "${FILES[@]}" ps
 
-if lisa_has_service mqtt; then
+if health_wanted mqtt; then
   wait_for_container lisa-mqtt || true
 fi
 
-if lisa_has_service uptime-kuma; then
+if health_wanted uptime-kuma; then
   wait_for_container lisa-uptime || true
 fi
 
 for service in $(lisa_selected_services); do
+  health_wanted "$service" || continue
   case "$service" in
     ha) wait_for_container lisa-ha || true ;;
     matter) wait_for_container lisa-matter || true ;;
@@ -284,21 +307,21 @@ for service in $(lisa_selected_services); do
   esac
 done
 
-if lisa_has_service mqtt; then
+if health_wanted mqtt; then
   echo "[LISA] Checking MQTT port..."
   wait_for_tcp "MQTT" "$(healthcheck_host "${MQTT_BIND_ADDR:-127.0.0.1}")" "${MQTT_PORT:-1883}" || true
 fi
 
-if lisa_has_service uptime-kuma; then
+if health_wanted uptime-kuma; then
   echo "[LISA] Checking Uptime Kuma port..."
   wait_for_tcp "Uptime Kuma" "$(healthcheck_host "${UPTIME_KUMA_BIND_ADDR:-127.0.0.1}")" "${UPTIME_KUMA_PORT:-3001}" || true
 fi
 
-if lisa_has_service ha; then
+if health_wanted ha; then
   wait_for_tcp "Home Assistant" 127.0.0.1 "${HOME_ASSISTANT_PORT:-8123}" || true
 fi
 
-if lisa_has_service matter; then
+if health_wanted matter; then
   MATTER_CHECK_HOST=127.0.0.1
   case "${MATTER_LISTEN_ADDRESS:-127.0.0.1}" in
     0.0.0.0|127.0.0.1|"") MATTER_CHECK_HOST=127.0.0.1 ;;
@@ -307,23 +330,23 @@ if lisa_has_service matter; then
   wait_for_tcp "Matter Server" "$MATTER_CHECK_HOST" "${MATTER_SERVER_PORT:-5580}" || true
 fi
 
-if lisa_has_service otbr; then
+if health_wanted otbr; then
   check_otbr
 fi
 
-if lisa_has_service matter; then
+if health_wanted matter; then
   check_matter
 fi
 
-if lisa_has_service zigbee2mqtt; then
+if health_wanted zigbee2mqtt; then
   wait_for_tcp "Zigbee2MQTT" "$(healthcheck_host "${ZIGBEE2MQTT_BIND_ADDR:-127.0.0.1}")" "${ZIGBEE2MQTT_PORT:-8080}" || true
 fi
 
-if lisa_has_service node-red; then
+if health_wanted node-red; then
   wait_for_tcp "Node-RED" "$(healthcheck_host "${NODE_RED_BIND_ADDR:-127.0.0.1}")" "${NODE_RED_PORT:-1880}" || true
 fi
 
-if lisa_has_service vpn-tailscale; then
+if health_wanted vpn-tailscale; then
   check_tailscale
 fi
 
@@ -336,22 +359,22 @@ print_web_urls() {
   mdns_host="$(hostname 2>/dev/null || echo lisa-edge).local"
 
   local entries=()
-  if lisa_has_service uptime-kuma; then
+  if health_wanted uptime-kuma; then
     entries+=("Uptime Kuma|${UPTIME_KUMA_PORT:-3001}|UPTIME_KUMA_BIND_ADDR")
   fi
-  if lisa_has_service ha; then
+  if health_wanted ha; then
     entries+=("Home Assistant|${HOME_ASSISTANT_PORT:-8123}|")
   fi
-  if lisa_has_service matter; then
+  if health_wanted matter; then
     entries+=("Matter Server|${MATTER_SERVER_PORT:-5580}|")
   fi
-  if lisa_has_service otbr; then
+  if health_wanted otbr; then
     entries+=("OTBR Web|80|")
   fi
-  if lisa_has_service zigbee2mqtt; then
+  if health_wanted zigbee2mqtt; then
     entries+=("Zigbee2MQTT|${ZIGBEE2MQTT_PORT:-8080}|ZIGBEE2MQTT_BIND_ADDR")
   fi
-  if lisa_has_service node-red; then
+  if health_wanted node-red; then
     entries+=("Node-RED|${NODE_RED_PORT:-1880}|NODE_RED_BIND_ADDR")
   fi
   [ "${#entries[@]}" -gt 0 ] || return 0

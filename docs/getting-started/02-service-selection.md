@@ -8,14 +8,17 @@ List the current selection keys:
 ./lisa-edge service list
 ```
 
-Select or change services through:
+Add or remove one service at a time with the service lifecycle:
 
 ```bash
-sudo ./lisa-edge setup
+sudo ./lisa-edge service add <service-key>
+sudo ./lisa-edge service remove <service-key>
 ```
 
-Use `sudo ./lisa-edge configure` when you only want to update `.env` and do not
-want to bootstrap or deploy yet.
+Re-running `sudo ./lisa-edge setup` reselects everything at once. Choose the
+setup menu's `Edit configuration only` action when you only want to update
+`.env` without applying it yet; apply it later with the `Refresh services`
+action.
 
 ## Selectable services
 

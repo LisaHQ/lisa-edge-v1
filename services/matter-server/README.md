@@ -48,8 +48,8 @@ schedule daily data backups when Matter is selected; a scheduled backup stops
 `lisa-matter` for the few seconds the snapshot takes. The live store is also
 included in the standard `sudo ./lisa-edge backup` archive.
 
-Select it with `sudo ./lisa-edge setup`, then use `sudo ./lisa-edge deploy`
-and `sudo ./lisa-edge health`. Operator commands: `matter status`,
+Add, configure, start, and verify it with `sudo ./lisa-edge service add
+matter`, then check `sudo ./lisa-edge health`. Operator commands: `matter status`,
 `matter credentials list`, `matter thread status|sync|remove`, and
 `matter reset` (backs up, wipes the fabric, and requires re-commissioning
 every device). The Thread commissioning credential is the Matter

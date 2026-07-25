@@ -38,7 +38,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ ! -f .env ]; then
-  echo "ERROR: missing .env; run 'sudo ./lisa-edge configure' (or setup) first." >&2
+  echo "ERROR: missing .env; run 'sudo ./lisa-edge setup' first." >&2
   exit 1
 fi
 set -a
@@ -67,7 +67,7 @@ ot() {
 # 1. Confirm OTBR and otbr-agent readiness.
 if ! otbr_container_is_running; then
   echo "ERROR: lisa-otbr container is not running." >&2
-  echo "Start it with: sudo ./lisa-edge deploy" >&2
+  echo "Start it with: sudo ./lisa-edge service start otbr" >&2
   exit 1
 fi
 echo "Waiting for otbr-agent to accept commands..."
@@ -154,17 +154,13 @@ echo
 echo "New Thread network is active:"
 thread_dataset_summary "$OTBR_ACTIVE_DATASET_HEX" | sed 's/^/  /'
 
-# 15. Synchronize the new dataset to the Matter server when Matter is selected.
+# 15. Check the Matter relationship through the shared check-and-sync path.
+# The new network always differs from the old default credential, so an
+# interactive operator is asked (default Yes); an internal-engine automatic
+# creation never prompts and leaves the health model to report the drift.
 if lisa_has_service matter; then
   echo
-  echo "Synchronizing the new dataset to the Matter server..."
-  if "$EDGE_REPO/services/matter-server/thread.sh" sync --from-otbr; then
-    :
-  else
-    echo "WARNING: Matter Thread credential sync failed." >&2
-    echo "New Thread commissioning will fail until you run:" >&2
-    echo "  sudo ./lisa-edge matter thread sync" >&2
-  fi
+  "$EDGE_REPO/services/matter-server/thread-sync-if-needed.sh" || true
 fi
 
 # 16. Recommissioning notice.

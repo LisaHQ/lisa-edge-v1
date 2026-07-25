@@ -14,17 +14,22 @@ For task-oriented guides, start at [docs/README.md](../README.md).
 
 | Command | Implementation |
 | --- | --- |
-| `lisa-edge setup` / `configure` | `install/provisioning/lisa-first-boot.sh` |
-| `lisa-edge bootstrap` | `install/bootstrap/bootstrap.sh` |
+| `lisa-edge setup` (all menu actions) | `install/provisioning/lisa-first-boot.sh` |
+| setup: bootstrap/repair (internal) | `install/bootstrap/bootstrap.sh` |
 | `lisa-edge usb list` | `install/usb/scripts/build/build-ubuntu-usb.sh` (list mode) |
 | `lisa-edge usb build <profile>` | `install/usb/scripts/build/build-ubuntu-usb.sh` |
 | `lisa-edge usb prepare production` | `install/usb/scripts/prepare/prepare-production-usb.sh` |
 | `lisa-edge usb prepare rescue` | `install/usb/scripts/prepare/prepare-rescue-usb.sh` |
-| `lisa-edge deploy` / `stop` / `update` / `health` / `status` | `ops/deploy/*.sh` |
+| `lisa-edge update` / `health` / `status` | `ops/deploy/*.sh` |
+| internal deployment engine (systemd ExecStart) | `ops/deploy/deploy.sh` |
+| internal stack stop (systemd ExecStop) | `ops/deploy/stop.sh` |
 | `lisa-edge reset data` / `provisioning` / `factory` | `ops/deploy/reset-node.sh` |
 | `lisa-edge diagnostics` | `ops/diagnostics/collect-diag.sh` |
 | `lisa-edge backup` / `restore` | `ops/backup-restore/*.sh` |
 | `lisa-edge service list` | `services/list.sh` |
+| `lisa-edge service add/remove/start/stop` | `services/lifecycle.sh` |
+| `lisa-edge security audit` / `harden` | `ops/security/audit.sh`, `ops/security/harden.sh` |
+| internal Thread check-and-sync | `services/matter-server/thread-sync-if-needed.sh` |
 | `lisa-edge rescue <subcommand>` | `rescue/scripts/*.sh` |
 
 ## Root
@@ -70,7 +75,7 @@ For task-oriented guides, start at [docs/README.md](../README.md).
 
 | Path | Purpose |
 | --- | --- |
-| `bootstrap.sh` | Idempotent host bootstrap behind `lisa-edge bootstrap`: runs every phase, seeds `.env` if missing, prepares services, deploys. |
+| `bootstrap.sh` | Idempotent internal host bootstrap (invoked by the setup workflows and first-boot provisioning): runs every phase, seeds `.env` if missing, installs systemd units, starts services through the internal deployment engine. |
 | `phases/00-base-packages.sh` | Base OS packages (curl, git, and friends). |
 | `phases/10-security.sh` | Host hardening (SSH policy, firewall baseline). |
 | `phases/20-docker.sh` | Docker Engine and Compose installation. |

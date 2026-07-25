@@ -39,11 +39,11 @@ fi
 grep -q -- '--target-root must be below /mnt' <<<"$unsafe_output"
 
 if deploy_output="$(PATH="$FAKE_BIN:$PATH" PYTHON_BIN=true bash "$RESTORE" \
-  --deploy --target-root /mnt/not-used "$ARCHIVE" 2>&1)"; then
-  echo "Expected target-root restore with --deploy to fail." >&2
+  --start-services --target-root /mnt/not-used "$ARCHIVE" 2>&1)"; then
+  echo "Expected target-root restore with --start-services to fail." >&2
   exit 1
 fi
-grep -q 'target-root restore cannot deploy' <<<"$deploy_output"
+grep -q 'target-root restore cannot start services' <<<"$deploy_output"
 
 if missing_target_output="$(PATH="$FAKE_BIN:$PATH" PYTHON_BIN=true bash "$RESTORE" \
   --target-root /mnt/lisa-edge-test-target-does-not-exist "$ARCHIVE" 2>&1)"; then

@@ -21,10 +21,10 @@ Hub as a numbered menu, defaulting to the most recent release; if the host
 is offline it keeps the configured reference. Host bootstrap prepares Avahi and IPv6 forwarding when OTBR is
 selected.
 
-Deploy and verify:
+Add and verify:
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add otbr
 sudo ./lisa-edge health
 sudo ./lisa-edge otbr status
 sudo ./lisa-edge otbr dataset show
@@ -40,8 +40,11 @@ with mode `0600` for use in other commissioners.
 reserved default Thread credential (the entry Home Assistant and other
 default-API clients use for commissioning), and `lisa-edge health`
 degrades when the identity fields of the two sides have drifted apart.
-Restoring or replacing the OTBR dataset requires running
-`matter thread sync` again.
+After an interactive `otbr dataset restore` or `otbr network create`, the
+shared check-and-sync path asks (default Yes) to copy the new dataset into
+the Matter server's default credential when they differ; automatic
+(engine-driven) restores never prompt and leave the drift to `health` plus
+the manual `matter thread sync` command.
 
 ## Creating a Thread network
 

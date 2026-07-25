@@ -5,11 +5,11 @@
 - Container: `lisa-otbr`
 - Requires: Thread RCP, stable serial path, IPv6 and `/dev/net/tun`
 
-Run `sudo ./lisa-edge setup` to select the radio, backbone interface and dataset
-policy. Then deploy and verify:
+Add it with `sudo ./lisa-edge service add otbr` (the wizard asks for the
+radio, backbone interface and dataset policy, then starts and verifies the
+service). Inspect it with:
 
 ```bash
-sudo ./lisa-edge deploy
 sudo ./lisa-edge health
 sudo ./lisa-edge otbr status
 sudo ./lisa-edge otbr dataset show              # redacted summary

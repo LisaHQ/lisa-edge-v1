@@ -38,9 +38,8 @@ ${C_SECTION}Usage:${C_RESET}
   ${C_CMD}lisa-edge${C_RESET} <command> [arguments]
 
 ${C_SECTION}Setup and installation:${C_RESET}
-  ${C_CMD}setup${C_RESET}                         Run the interactive first-boot workflow
-  ${C_CMD}configure${C_RESET} [wizard options]    Write or update configuration only
-  ${C_CMD}bootstrap${C_RESET} [arguments]         Prepare the host and deploy configured services
+  ${C_CMD}setup${C_RESET}                         Interactive configuration, restore, service
+                                refresh, bootstrap, and host repair
   ${C_CMD}usb list${C_RESET}                      List removable/USB disks
   ${C_CMD}usb build${C_RESET} <profile> [options] Download Ubuntu, write a bootable USB,
                                 and inject the autoinstall profile
@@ -49,15 +48,26 @@ ${C_SECTION}Setup and installation:${C_RESET}
                                 existing installer USB (production|rescue)
 
 ${C_SECTION}Runtime operations:${C_RESET}
-  ${C_CMD}deploy${C_RESET} [--pull|--offline]      Start or refresh selected services
-  ${C_CMD}stop${C_RESET}                           Stop selected services
-  ${C_CMD}update${C_RESET} [clean]                 Fast-forward the repository and refresh images
+  ${C_CMD}update${C_RESET} [clean]                 Update the repository, refresh selected images,
+                                refresh the stack, and verify health
                                 ${C_DIM}(clean discards local changes to tracked files first)${C_RESET}
   ${C_CMD}health${C_RESET} [--strict]              Run readiness checks (HEALTHY/DEGRADED/FAILED)
   ${C_CMD}status${C_RESET}                         Show selected services and runtime state
   ${C_CMD}diagnostics${C_RESET} [output-dir]       Create a diagnostics bundle
   ${C_CMD}doctor matter-thread${C_RESET}          Focused Matter-over-Thread diagnostics
+
+${C_SECTION}Service lifecycle:${C_RESET}
   ${C_CMD}service list${C_RESET}                  List available service selection keys
+  ${C_CMD}service add${C_RESET} <service-key>     Select, configure, start, and verify one
+                                new service
+  ${C_CMD}service remove${C_RESET} <service-key>  Unselect one service and safely remove its
+                                active data (backups/images preserved)
+  ${C_CMD}service start${C_RESET} [service-key ...]  Start selected services (all when no key)
+  ${C_CMD}service stop${C_RESET} [service-key ...]   Stop selected services (all when no key)
+
+${C_SECTION}Security:${C_RESET}
+  ${C_CMD}security audit${C_RESET} [--strict]     Read-only security inspection
+  ${C_CMD}security harden${C_RESET}               Bounded, lockout-safe remediation
 
 ${C_SECTION}Thread border router (OTBR):${C_RESET}
   ${C_CMD}otbr status${C_RESET}                   Show OTBR runtime and Thread network state
@@ -249,13 +259,43 @@ run_doctor() {
 
 run_service() {
   local action="${1:-}"
-  [ -n "$action" ] || die "service requires a subcommand; currently supported: list"
+  [ -n "$action" ] || die "service requires a subcommand: list, add, remove, start, or stop"
   shift
 
   case "$action" in
     list)
       run_script "service catalog listing" "services/list.sh" "$@" ;;
-    *) die "unknown service subcommand: $action" ;;
+    add|remove|start|stop)
+      run_script "service lifecycle" "services/lifecycle.sh" "$action" "$@" ;;
+    *) die "unknown service subcommand: $action (use list, add, remove, start, or stop)" ;;
+  esac
+}
+
+security_usage() {
+  cat <<EOF
+${C_SECTION}Usage:${C_RESET}
+  ${C_CMD}lisa-edge security audit${C_RESET} [--strict]   Read-only security inspection
+                                        (--strict also fails on DEGRADED)
+  ${C_CMD}lisa-edge security harden${C_RESET}             Bounded, lockout-safe remediation
+EOF
+}
+
+run_security() {
+  local action="${1:-}"
+  if [ -z "$action" ]; then
+    security_usage
+    exit 0
+  fi
+  shift
+
+  case "$action" in
+    audit)
+      run_script "security audit" "ops/security/audit.sh" "$@" ;;
+    harden)
+      run_script "security hardening" "ops/security/harden.sh" "$@" ;;
+    -h|--help)
+      security_usage ;;
+    *) die "unknown security subcommand: $action (use audit or harden)" ;;
   esac
 }
 
@@ -274,10 +314,6 @@ shift
 case "$COMMAND" in
   help|-h|--help) usage ;;
   setup) run_script "provisioning workflow" "install/provisioning/lisa-first-boot.sh" "$@" ;;
-  configure) run_script "provisioning workflow" "install/provisioning/lisa-first-boot.sh" --mode config-only "$@" ;;
-  bootstrap) run_script "host bootstrap" "install/bootstrap/bootstrap.sh" "$@" ;;
-  deploy) run_script "deployment" "ops/deploy/deploy.sh" "$@" ;;
-  stop) run_script "stop workflow" "ops/deploy/stop.sh" "$@" ;;
   update) run_script "update workflow" "ops/deploy/update.sh" "$@" ;;
   health) run_script "health check" "ops/deploy/healthcheck.sh" "$@" ;;
   status) run_script "status" "ops/deploy/status.sh" "$@" ;;
@@ -288,6 +324,7 @@ case "$COMMAND" in
   usb) run_usb "$@" ;;
   rescue) run_rescue "$@" ;;
   service) run_service "$@" ;;
+  security) run_security "$@" ;;
   doctor) run_doctor "$@" ;;
   otbr) run_otbr "$@" ;;
   matter) run_matter "$@" ;;

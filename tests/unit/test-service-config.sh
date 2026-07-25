@@ -93,7 +93,7 @@ fi
   fail "aggregate otbr validation must pass"
 
 # --- BLE adapter resolution ---
-[ "$(MATTER_BLUETOOTH_ADAPTER=lisa_matter_ble_adapter)" = "none" ] ||
+[ "$(MATTER_BLUETOOTH_ADAPTER= lisa_matter_ble_adapter)" = "none" ] ||
   fail "empty adapter must resolve to none"
 [ "$(MATTER_BLUETOOTH_ADAPTER=none lisa_matter_ble_adapter)" = "none" ] ||
   fail "'none' must resolve to none"

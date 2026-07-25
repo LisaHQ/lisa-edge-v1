@@ -66,6 +66,31 @@ then
   echo "Stale file reference found." >&2
   exit 1
 fi
+
+echo "Checking removed operator commands stay removed..."
+# configure, bootstrap, deploy, and stop are no longer root commands; no
+# documentation, hint, or example may recommend them (internal paths such
+# as ops/deploy/deploy.sh are different strings and stay valid).
+if grep -RInE --exclude='validate-repo.sh' --exclude='test-root-cli.sh' \
+  --exclude='test-restore-args.sh' --exclude-dir=archive \
+  'lisa-edge (configure|bootstrap|deploy)\b|lisa-edge stop($|[^a-z-])|lisa-edge-provision (configure|bootstrap|deploy)\b' \
+  README.md CLAUDE.md docs install ops rescue services lib tools tests
+then
+  echo "A removed root command is still referenced." >&2
+  exit 1
+fi
+if grep -RInE --exclude='validate-repo.sh' --exclude='test-root-cli.sh' \
+  --exclude='test-restore-args.sh' --exclude-dir=archive \
+  'restore (--deploy|--no-deploy)|--no-deploy' \
+  README.md CLAUDE.md docs install ops rescue services lib tools tests
+then
+  echo "The obsolete restore deploy options are still referenced." >&2
+  exit 1
+fi
+if grep -RInE 'MATTER_THREAD_CREDENTIAL_ID=' .env.template install ops; then
+  echo "MATTER_THREAD_CREDENTIAL_ID must not return as a configuration concept." >&2
+  exit 1
+fi
 if grep -RInE \
   '(\$REPO_ROOT/|bash[[:space:]]+)test/(unit|security|integration)/' \
   tools .github
@@ -106,6 +131,21 @@ echo "Checking service selection and image policy..."
 bash "$REPO_ROOT/tests/unit/test-service-selection.sh"
 bash "$REPO_ROOT/tests/unit/test-image-policy.sh"
 
+echo "Checking root CLI command model..."
+bash "$REPO_ROOT/tests/unit/test-root-cli.sh"
+
+echo "Checking the shared Thread check-and-sync path..."
+bash "$REPO_ROOT/tests/unit/test-thread-sync.sh"
+
+echo "Checking the setup menu actions..."
+bash "$REPO_ROOT/tests/unit/test-setup-menu.sh"
+
+echo "Checking the service lifecycle..."
+bash "$REPO_ROOT/tests/unit/test-service-lifecycle.sh"
+
+echo "Checking restore argument validation..."
+bash "$REPO_ROOT/tests/unit/test-restore-args.sh"
+
 echo "Checking update argument validation..."
 bash "$REPO_ROOT/tests/unit/test-update-args.sh"
 
@@ -132,6 +172,9 @@ bash "$REPO_ROOT/tests/security/test-path-safety.sh"
 bash "$REPO_ROOT/tests/security/test-restore-target-root.sh"
 bash "$REPO_ROOT/tests/security/test-usb-device-guard.sh"
 bash "$REPO_ROOT/tests/security/test-dataset-secret-safety.sh"
+
+echo "Checking security audit and hardening..."
+bash "$REPO_ROOT/tests/security/test-security-audit.sh"
 
 echo "Checking Rescue OS path guardrails..."
 bash "$REPO_ROOT/tests/security/test-recovery-safety.sh"

@@ -45,7 +45,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ ! -f .env ]; then
-  echo "ERROR: missing .env; run 'sudo ./lisa-edge configure' (or setup) first." >&2
+  echo "ERROR: missing .env; run 'sudo ./lisa-edge setup' first." >&2
   exit 1
 fi
 set -a
@@ -85,7 +85,7 @@ TARGET_XPAN="$(thread_dataset_ext_pan_id "$DATASET")"
 
 if ! otbr_container_is_running; then
   echo "ERROR: lisa-otbr container is not running." >&2
-  echo "Start it with: sudo ./lisa-edge deploy" >&2
+  echo "Start it with: sudo ./lisa-edge service start otbr" >&2
   exit 1
 fi
 if ! otbr_wait_for_agent "${OTBR_AGENT_WAIT_ATTEMPTS:-30}" "${OTBR_WAIT_DELAY_SECONDS:-2}"; then
@@ -151,6 +151,13 @@ fi
 echo "OTBR dataset restored from: $DATASET_FILE"
 echo "Active network now:"
 thread_dataset_summary "$OTBR_ACTIVE_DATASET_HEX"
-echo
-echo "If the Matter service is deployed, re-sync its Thread credentials:"
-echo "  sudo ./lisa-edge matter thread sync"
+
+# Check the Matter relationship through the shared check-and-sync path: an
+# interactive operator is prompted only when the default credential is
+# missing or differs; an internal-engine automatic restore never prompts.
+# shellcheck disable=SC1091
+. "$EDGE_REPO/lib/compose.sh"
+if lisa_has_service matter; then
+  echo
+  "$EDGE_REPO/services/matter-server/thread-sync-if-needed.sh" || true
+fi

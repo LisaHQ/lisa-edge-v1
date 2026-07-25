@@ -11,5 +11,5 @@ name.
 
 Persistent application data, including coordinator-related configuration, is
 stored at `${DATA_ROOT}/docker/volumes/zigbee2mqtt/`. Back it up before hardware
-migration. Deploy and verify with `sudo ./lisa-edge deploy` followed by
-`sudo ./lisa-edge health`.
+migration. Add and verify with `sudo ./lisa-edge service add zigbee2mqtt`
+followed by `sudo ./lisa-edge health`.

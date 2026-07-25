@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NO_DEPLOY=1
+START_SERVICES=0
 ALLOW_MISSING_CHECKSUM=0
 ARCHIVE=""
 PYTHON_BIN="${PYTHON_BIN:-python3}"
@@ -13,17 +13,20 @@ usage() {
 Usage: sudo $0 [options] /path/to/lisa-edge-backup.tar.gz
 
 Options:
-  --deploy                    Deploy after restoring to the live root
-  --no-deploy                 Restore only (default)
+  --start-services            Start the restored services (internal
+                              deployment engine + health check) after
+                              restoring to the live root
+  --no-start-services         Restore only (default)
   --target-root PATH          Restore into an exact mount below /mnt
+                              (never starts services)
   --allow-missing-checksum    Allow a trusted legacy archive without sidecar
 EOF
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --no-deploy) NO_DEPLOY=1 ;;
-    --deploy) NO_DEPLOY=0 ;;
+    --no-start-services) START_SERVICES=0 ;;
+    --start-services) START_SERVICES=1 ;;
     --target-root)
       [ "$#" -ge 2 ] || { echo "--target-root requires a path." >&2; usage; exit 1; }
       RESTORE_TARGET_ROOT="$2"
@@ -65,7 +68,7 @@ command -v "$PYTHON_BIN" >/dev/null 2>&1 || {
 }
 
 if [ "$RESTORE_TARGET_ROOT" != "/" ]; then
-  [ "$NO_DEPLOY" -eq 1 ] || { echo "A target-root restore cannot deploy containers." >&2; exit 1; }
+  [ "$START_SERVICES" -eq 0 ] || { echo "A target-root restore cannot start services." >&2; exit 1; }
   if [ "${LISA_EDGE_TESTING:-0}" = "1" ] && [ "$TARGET_ROOT_FROM_CLI" -eq 0 ]; then
     case "$RESTORE_TARGET_ROOT" in /tmp/*) ;; *) echo "Test restore target must be below /tmp." >&2; exit 1 ;; esac
     mkdir -p "$RESTORE_TARGET_ROOT"
@@ -237,10 +240,17 @@ else
   restore_member "${RESTORED_OTBR_DIR#/}" "$RESTORED_OTBR_DIR"
 fi
 
-if [ "$NO_DEPLOY" -eq 1 ]; then
-  echo "[LISA] Restore finished. Deployment was intentionally skipped by default."
-  echo "[LISA] Review .env, then run ./lisa-edge deploy or repeat restore with --deploy."
+if [ "$START_SERVICES" -eq 0 ]; then
+  echo "[LISA] Restore finished. Services were intentionally NOT started (default)."
+  echo "[LISA] Review .env, then start the restored services through an interactive"
+  echo "[LISA] workflow: sudo ./lisa-edge setup (Refresh services), or repeat the"
+  echo "[LISA] restore with --start-services. The OTBR/Matter Thread credential"
+  echo "[LISA] relationship is checked when services are next started that way."
 else
-  echo "[LISA] Restore finished. Deploying stack..."
+  echo "[LISA] Restore finished. Starting the restored services..."
   "$EDGE_REPO/ops/deploy/deploy.sh"
+  # Interactive live restore: check the OTBR <-> Matter default-credential
+  # relationship through the shared check-and-sync path. It prompts only
+  # when a sync is needed and never prompts without a terminal.
+  "$EDGE_REPO/services/matter-server/thread-sync-if-needed.sh" || true
 fi

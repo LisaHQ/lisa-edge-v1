@@ -49,7 +49,7 @@ fail() {
 echo "=== LISA Edge doctor: matter-thread ==="
 
 if [ ! -f .env ]; then
-  fail "configuration missing (.env)" "run: sudo ./lisa-edge configure"
+  fail "configuration missing (.env)" "run: sudo ./lisa-edge setup"
   exit 1
 fi
 set -a
@@ -74,7 +74,7 @@ if [ "$OTBR_SELECTED" -eq 1 ] && [ "$MATTER_SELECTED" -eq 1 ]; then
   pass "services selected: otbr + matter"
 else
   warn "matter-over-thread needs both services selected (otbr=$OTBR_SELECTED matter=$MATTER_SELECTED)" \
-    "run: sudo ./lisa-edge configure and select both, then deploy"
+    "run: sudo ./lisa-edge service add matter (and otbr)"
 fi
 
 # --- docker ---------------------------------------------------------------
@@ -82,7 +82,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   pass "docker is available"
 else
   fail "docker is not available or the daemon is not running" \
-    "systemctl status docker; sudo ./lisa-edge bootstrap"
+    "systemctl status docker; sudo ./lisa-edge setup (Bootstrap/repair)"
   exit 1
 fi
 
@@ -100,7 +100,7 @@ if [ "$OTBR_SELECTED" -eq 1 ]; then
     pass "lisa-otbr container is running ($state)"
   else
     fail "lisa-otbr container is not running ($state)" \
-      "sudo ./lisa-edge deploy; docker logs --tail 50 lisa-otbr"
+      "sudo ./lisa-edge service start otbr; docker logs --tail 50 lisa-otbr"
   fi
 
   radio="${THREAD_RADIO_DEVICE:-}"
@@ -114,7 +114,7 @@ if [ "$OTBR_SELECTED" -eq 1 ]; then
     fi
   else
     fail "RCP device is missing: ${radio:-unset}" \
-      "ls -l /dev/serial/by-id/; re-run: sudo ./lisa-edge configure"
+      "ls -l /dev/serial/by-id/; re-run: sudo ./lisa-edge setup"
   fi
 
   if [ "${state%%/*}" = "running" ]; then
@@ -151,7 +151,7 @@ if [ "$OTBR_SELECTED" -eq 1 ]; then
       pass "sysctl $sysctl_key=1"
     else
       fail "sysctl $sysctl_key=$value (Thread border routing needs 1)" \
-        "sudo ./lisa-edge bootstrap (thread host prep) or: sudo sysctl -w $sysctl_key=1"
+        "sudo ./lisa-edge setup (Bootstrap/repair; thread host prep) or: sudo sysctl -w $sysctl_key=1"
     fi
   done
 
@@ -165,7 +165,7 @@ if [ "$OTBR_SELECTED" -eq 1 ]; then
     fi
   else
     fail "backbone interface does not exist: ${backbone:-unset}" \
-      "ip -o link show; re-run: sudo ./lisa-edge configure"
+      "ip -o link show; re-run: sudo ./lisa-edge setup"
   fi
 fi
 
@@ -177,7 +177,7 @@ if [ "$MATTER_SELECTED" -eq 1 ]; then
     pass "lisa-matter container is running ($state)"
   else
     fail "lisa-matter container is not running ($state)" \
-      "sudo ./lisa-edge deploy; docker logs --tail 50 lisa-matter"
+      "sudo ./lisa-edge service start matter; docker logs --tail 50 lisa-matter"
   fi
 
   matter_host="$(matter_ws_host)"
@@ -201,7 +201,7 @@ if [ "$MATTER_SELECTED" -eq 1 ]; then
         pass "fabric label: '$label'"
       else
         warn "fabric label is '${label:-unset}' (configured: '${MATTER_FABRIC_LABEL:-LISA Home}')" \
-          "sudo ./lisa-edge deploy applies DEFAULT_FABRIC_LABEL; a fabric created before this setting keeps its old label until reset"
+          "a service refresh (sudo ./lisa-edge setup) applies DEFAULT_FABRIC_LABEL; a fabric created before this setting keeps its old label until reset"
       fi
 
       # Readiness is decided by the RESERVED DEFAULT credential only; a
@@ -288,7 +288,7 @@ if command -v avahi-daemon >/dev/null 2>&1 || systemctl is-active avahi-daemon >
   fi
 else
   warn "avahi-daemon not found (mDNS/service discovery may rely on other responders)" \
-    "sudo ./lisa-edge bootstrap installs it with thread host prep"
+    "sudo ./lisa-edge setup (Bootstrap/repair) installs it with thread host prep"
 fi
 if command -v avahi-browse >/dev/null 2>&1; then
   if timeout 5 avahi-browse -pt _meshcop._udp 2>/dev/null | grep -q '^='; then

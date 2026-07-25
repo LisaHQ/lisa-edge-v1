@@ -38,7 +38,7 @@ field() { printf '%-22s%s\n' "$1" "$2"; }
 
 if [ ! -f .env ]; then
   field "Status:" "NOT CONFIGURED"
-  echo "Missing .env. Run: sudo ./lisa-edge configure"
+  echo "Missing .env. Run: sudo ./lisa-edge setup"
   exit 0
 fi
 set -a
@@ -50,7 +50,7 @@ set +a
 
 if ! lisa_has_service otbr; then
   field "Status:" "NOT CONFIGURED"
-  echo "OTBR is not in LISA_COMPOSE_SERVICES. Run: sudo ./lisa-edge configure"
+  echo "OTBR is not in LISA_COMPOSE_SERVICES. Add it with: sudo ./lisa-edge service add otbr"
   exit 0
 fi
 
@@ -79,7 +79,7 @@ field "Backbone interface:" "${OTBR_BACKBONE_IF:-unset}"
 
 if [ "$CONTAINER_STATE" != "running" ]; then
   field "Status:" "STOPPED"
-  echo "Start it with: sudo ./lisa-edge deploy"
+  echo "Start it with: sudo ./lisa-edge service start otbr"
   exit 0
 fi
 case "$CONTAINER_HEALTH" in

@@ -17,8 +17,41 @@ LISA Edge should be treated as infrastructure.
 
 The Ubuntu autoinstall account receives passwordless sudo only so unattended
 bootstrap can start. Bootstrap removes `/etc/sudoers.d/90-lisa-admin` after a
-usable local password is confirmed, unless the operator explicitly enables the
-documented emergency override.
+usable local password is confirmed, unless the operator explicitly enables
+the documented emergency override (`LISA_KEEP_PASSWORDLESS_SUDO=1`, default
+`0`). Passwordless sudo is a lab/emergency exception, never the normal state.
+
+## Security audit and hardening
+
+```bash
+sudo ./lisa-edge security audit            # read-only inspection
+sudo ./lisa-edge security audit --strict   # also fail on DEGRADED (monitoring)
+sudo ./lisa-edge security harden           # bounded, lockout-safe remediation
+```
+
+The audit is read-only, needs no Internet access, never prints secrets, and
+reports HEALTHY/DEGRADED/FAILED with the same exit-code model as `health`
+(nonzero only for FAILED; `--strict` also fails on DEGRADED). It checks: the
+actual sudo state of `LISA_ADMIN_USER` against `LISA_KEEP_PASSWORDLESS_SUDO`;
+the admin account and its administrative path; effective SSH settings via
+`sshd -T` (`PermitRootLogin`, `PasswordAuthentication`,
+`KbdInteractiveAuthentication`) and SSH syntax validity; usable authorized
+keys and `.ssh` permissions; `.env` ownership/mode and Git tracking; unsafe
+Docker TCP listeners (the local Unix socket is never flagged); docker group
+membership (root-equivalent - reported, never changed automatically); the
+Matter wildcard bind (`MATTER_LISTEN_ADDRESS=0.0.0.0`); and permissions on
+the canonical OTBR/Matter backup directories. Firewall allowlists remain
+deployment-specific and are not managed by the audit.
+
+`security harden` performs only bounded, provably safe remediation: it fixes
+LISA-owned file modes, fixes the admin account's SSH file ownership/modes,
+removes the temporary passwordless sudo grant only after a usable password
+is verified or interactively established, disables SSH password login only
+after a usable non-root authorized key is verified (and validates the
+configuration with `sshd -t` before any reload), and offers to replace a
+Matter wildcard bind with an operator-selected address. It never removes
+users from the docker group and fails closed with the exact manual
+correction whenever safety cannot be proven.
 
 ## Sensitive Services
 

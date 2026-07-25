@@ -645,7 +645,7 @@ run_reset_data() {
     echo "cannot operate on an incomplete deployment." >&2
     echo >&2
     echo "Recover with:" >&2
-    echo "  sudo ./lisa-edge deploy" >&2
+    echo "  sudo ./lisa-edge setup   (choose 'Refresh services')" >&2
     echo "then restore the backup timers with:" >&2
     echo "  sudo bash $EDGE_REPO/ops/deploy/install-systemd.sh" >&2
     exit 1

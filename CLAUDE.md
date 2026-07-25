@@ -285,21 +285,32 @@ New operational behavior should normally be exposed through the root CLI instead
 
 Canonical commands include:
 
-- `setup`
-- `configure`
-- `bootstrap`
-- `deploy`
-- `stop`
-- `update`
+- `setup` (interactive configuration, restore, service refresh, bootstrap, and host repair)
+- `update` (update repository/images, refresh the stack through the internal engine, verify health)
+- `service list`
+- `service add <service-key>`
+- `service remove <service-key>`
+- `service start [service-key ...]`
+- `service stop [service-key ...]`
+- `security audit [--strict]`
+- `security harden`
 - `status`
 - `health`
-- `service list`
 - `backup`
-- `restore`
+- `restore` (service start via `--start-services` / `--no-start-services`)
+- `reset data|provisioning|factory`
 - `diagnostics`
-- `usb production`
-- `usb rescue`
+- `usb list|build|prepare`
+- `otbr ...` and `matter ...`
 - `rescue`
+
+The root commands `configure`, `bootstrap`, `deploy`, and `stop` do NOT
+exist. Do not reintroduce them, and do not add `apply`, `refresh`,
+`reconcile`, hidden lifecycle commands, compatibility aliases, or
+`service delete`. Host bootstrap (`install/bootstrap/bootstrap.sh`) and the
+full-stack deployment engine (`ops/deploy/deploy.sh`) are internal
+implementations invoked by setup, update, the service lifecycle,
+restore/reset, and systemd — never route them through a root command.
 
 Do not rename, bypass, or duplicate stable commands casually.
 Preserve backward-compatible operator behavior unless a breaking change is explicitly justified and documented.
@@ -309,10 +320,11 @@ Preserve backward-compatible operator behavior unless a breaking change is expli
 - `install/usb/`: production and rescue installation media
 - `install/provisioning/`: first-boot and site-specific provisioning
 - `install/bootstrap/`: host packages, hardening, Docker, and storage preparation
-- `services/`: service Compose, configuration, preparation, and provisioning
-- `ops/deploy/`: deploy, stop, update, status, health, and systemd runtime behavior
+- `services/`: service catalog/registry, lifecycle, Compose, configuration, preparation, and provisioning
+- `ops/deploy/`: internal deployment engine, update, status, health, and systemd runtime behavior
 - `ops/backup-restore/`: backup, restore, archive validation, and timers
 - `ops/diagnostics/`: diagnostic collection
+- `ops/security/`: read-only security audit and bounded hardening
 - `rescue/`: Rescue OS and disaster-recovery tooling
 - `docs/`: architecture, operations, security, networking, and procedures
 - `tools/`: repository tooling and validation

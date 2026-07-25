@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Internal host bootstrap implementation. NOT a root CLI command: it is
+# invoked by the setup workflows (fresh setup, restore with service start,
+# and the setup menu's bootstrap/repair action) and by first-boot
+# provisioning. It prepares and hardens the host, installs Docker and
+# supporting packages, installs systemd units, and then invokes the internal
+# deployment engine to start/refresh the selected services.
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-log() { echo "[lisa-edge bootstrap] $*"; }
+log() { echo "[LISA bootstrap] $*"; }
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root: sudo $0" >&2
@@ -21,6 +28,7 @@ chmod +x "$REPO_DIR"/lisa-edge
 chmod +x "$REPO_DIR"/ops/deploy/*.sh
 chmod +x "$REPO_DIR"/ops/backup-restore/*.sh
 chmod +x "$REPO_DIR"/ops/diagnostics/*.sh
+chmod +x "$REPO_DIR"/ops/security/*.sh
 chmod +x "$REPO_DIR"/services/*.sh
 find "$REPO_DIR/services" -type f -name '*.sh' -exec chmod +x {} +
 chmod +x "$REPO_DIR"/tools/*.sh
@@ -65,8 +73,8 @@ done
 log "Installing systemd runtime and backup units"
 "$REPO_DIR/ops/deploy/install-systemd.sh"
 
-log "Deploying services"
-"$REPO_DIR/lisa-edge" deploy
+log "Deploying services through the internal deployment engine"
+bash "$REPO_DIR/ops/deploy/deploy.sh"
 bash "$REPO_DIR/install/bootstrap/finalize-admin-access.sh"
 
 log "Marking host as provisioned"

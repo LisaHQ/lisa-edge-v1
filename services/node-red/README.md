@@ -5,10 +5,10 @@
 - Container: `lisa-node-red`
 - UI: `NODE_RED_BIND_ADDR:NODE_RED_PORT`, default `127.0.0.1:1880`
 
-Configure it with `sudo ./lisa-edge setup`, then use:
+Add, configure, start, and verify it with:
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add node-red
 sudo ./lisa-edge health
 ```
 

@@ -5,12 +5,12 @@
 - Container: `lisa-mqtt`
 - Ports: `MQTT_PORT` 1883 and `MQTT_WS_PORT` 9001
 
-Select and configure it with `sudo ./lisa-edge setup`. Deployment refuses the
-template password, prepares Mosquitto configuration and credentials, starts the
-container, then verifies readiness:
+Add, configure, start, and verify it in one step (the service refresh
+refuses the template password, prepares Mosquitto configuration and
+credentials, starts the container, then verifies readiness):
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add mqtt
 sudo ./lisa-edge health
 ```
 

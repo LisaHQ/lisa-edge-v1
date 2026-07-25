@@ -5,11 +5,11 @@
 - Enabled by default: no
 - Container: `lisa-tailscale`
 
-The service uses host networking and `/dev/net/tun`. Configure `TS_AUTHKEY` and
-`TS_EXTRA_ARGS` with `sudo ./lisa-edge setup`, then run:
+The service uses host networking and `/dev/net/tun`. Add it (the wizard asks
+for `TS_AUTHKEY` and `TS_EXTRA_ARGS`) and verify it with:
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add vpn-tailscale
 sudo ./lisa-edge health
 ```
 

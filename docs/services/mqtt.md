@@ -14,10 +14,10 @@ Important `.env` values are `MQTT_USERNAME`, `MQTT_PASSWORD`,
 password when the template value is unchanged. Bind to localhost or a trusted
 service-network address; never expose MQTT directly to the public internet.
 
-Deploy and verify:
+Add and verify:
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add mqtt
 sudo ./lisa-edge health
 ```
 

@@ -52,13 +52,20 @@ service state.
 
 ```bash
 sudo ./lisa-edge restore /path/to/lisa-edge-backup.tar.gz
-# Review .env and image references, then:
-sudo ./lisa-edge deploy
+# Review .env and image references, then start the restored services:
+sudo ./lisa-edge restore --start-services /path/to/lisa-edge-backup.tar.gz
+# ...or apply the restored configuration through the setup menu:
+sudo ./lisa-edge setup    # choose "Refresh services"
 ```
 
 Restore requires the adjacent checksum by default, validates `.env`, rejects
-unsafe archive members, extracts into protected staging and does not deploy
-unless `--deploy` is explicitly supplied. Format v3 is path-independent; the
+unsafe archive members, extracts into protected staging and does not start
+services unless `--start-services` is explicitly supplied (`--no-start-services`
+is the default). After an interactive `--start-services` restore with both
+Matter and OTBR selected, the shared Thread credential check runs and offers a
+sync only when the restored default credential does not already match the
+restored OTBR dataset. A `--target-root` (Rescue Layer) restore never starts
+services and never touches credentials. Format v3 is path-independent; the
 restore command also accepts trusted legacy format-v2 archives.
 
 `--allow-missing-checksum` is only for a known trusted legacy archive. A

@@ -29,10 +29,10 @@ health checks), `MATTER_LISTEN_ADDRESS`, an optional
 `MATTER_PRIMARY_INTERFACE`, the Bluetooth adapter (detected from
 `/sys/class/bluetooth/`), the fabric label, the
 Matter data backup directory and restore policy, and can stage a data
-restore or fabric reset for the next deploy. Deploy and verify:
+restore or fabric reset for the next service refresh. Add and verify:
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add matter
 sudo ./lisa-edge health
 sudo ./lisa-edge matter status
 ```
@@ -70,6 +70,21 @@ sudo ./lisa-edge matter credentials list       # non-secret summaries
 sudo ./lisa-edge matter thread status          # relationship with OTBR
 sudo ./lisa-edge matter thread remove --id <id>
 ```
+
+Interactive workflows check and offer this sync automatically: setup
+(fresh/restore), `service add matter`/`service add otbr`, an interactive
+`otbr dataset restore` or `otbr network create`, and a live restore with
+`--start-services` all run one shared internal check
+(`services/matter-server/thread-sync-if-needed.sh`). When the default
+credential already matches OTBR they report the match and ask nothing; when
+it is missing or differs they ask `Copy OTBR's active Thread dataset to
+Matter Server's default credential? [Y/n]` (default Yes). Non-interactive
+paths — systemd boot, the internal deployment engine, `update`, timers, and
+`service start` — never prompt: they leave services running, let `health`
+report DEGRADED, and print the manual `matter thread sync` command. The
+synchronization direction is only ever OTBR → Matter default credential;
+only the identity fields the API returns (network name, extended PAN ID)
+are compared, and the raw dataset, Network Key, and PSKc are never printed.
 
 Sync validates the dataset, sends `set_thread_dataset` without an `id`
 field (upstream reserved-default semantics) over one WebSocket connection,

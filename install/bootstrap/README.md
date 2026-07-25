@@ -2,16 +2,22 @@
 
 This directory prepares a supported Linux host to run LISA Edge.
 
-Run the orchestrator as root:
+Bootstrap is an internal implementation, not a root command. It runs through
+the setup workflows:
 
 ```bash
-sudo ./lisa-edge bootstrap
+sudo ./lisa-edge setup     # fresh setup, restore with service start, or the
+                           # "Bootstrap or repair this host" menu action
 ```
 
-The root command dispatches to `install/bootstrap/bootstrap.sh`. The bootstrap
-script loads `.env`, executes every script in `phases/` in lexical order,
-deploys the selected Compose services, installs the systemd units, and finalizes
-administrator access.
+These workflows (and first-boot provisioning) invoke
+`install/bootstrap/bootstrap.sh` directly. The bootstrap script loads `.env`,
+executes every script in `phases/` in lexical order, installs the systemd
+units, starts the selected Compose services through the internal deployment
+engine (`ops/deploy/deploy.sh`), and finalizes administrator access.
+Bootstrap and the deployment engine are different layers: bootstrap prepares
+and hardens the host; the engine operates the already prepared service
+stack.
 
 ## Phase convention
 

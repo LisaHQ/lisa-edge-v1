@@ -5,12 +5,12 @@
 - Dependency: `mqtt`
 - Container: `lisa-zigbee2mqtt`
 
-Configure the coordinator path, bind address and UI port with
-`sudo ./lisa-edge setup`. Prefer `/dev/serial/by-id/...` over a changing tty
-name. The wizard adds MQTT when required.
+Add it with `sudo ./lisa-edge service add zigbee2mqtt` (the wizard asks for
+the coordinator path, bind address and UI port, and adds MQTT when
+required). Prefer `/dev/serial/by-id/...` over a changing tty name.
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add zigbee2mqtt
 sudo ./lisa-edge health
 ```
 

@@ -1,29 +1,46 @@
-# Deploy and Runtime Lifecycle
+# Deploy Engine and Runtime Lifecycle
 
-This directory owns deployment, stop/update, readiness, status and production
-systemd integration. Operators should use the stable root facade:
+This directory owns the internal full-stack deployment engine, update,
+readiness, status and production systemd integration. `deploy` and `stop`
+are **not** root commands; the operator-facing lifecycle is:
 
 ```bash
-sudo ./lisa-edge deploy              # pull only missing images
-sudo ./lisa-edge deploy --pull       # refresh selected images
-sudo ./lisa-edge deploy --offline    # never pull
-sudo ./lisa-edge status              # non-invasive state snapshot
-sudo ./lisa-edge health              # readiness checks
-sudo ./lisa-edge stop
-sudo ./lisa-edge update              # git fast-forward + refreshed images
+sudo ./lisa-edge update              # update repo + images, refresh the
+                                     # stack through the engine, verify health
 sudo ./lisa-edge update clean        # discard local changes to tracked files,
                                      # reset to the remote branch, then refresh
+sudo ./lisa-edge setup               # menu: Refresh services applies the
+                                     # CURRENT configuration (no Git/image update)
+sudo ./lisa-edge service start|stop  # runtime state without selection changes
+sudo ./lisa-edge status              # non-invasive state snapshot
+sudo ./lisa-edge health              # readiness checks
 ```
 
-Deployment reads `.env`, validates `DATA_ROOT`, selection keys and image policy,
-builds the Compose stack from `compose.yml` plus each selected
-`services/<owner>/compose.yml`, prepares MQTT when selected, starts containers,
-performs OTBR dataset initialization/recovery when selected, and finishes with
-the health check.
+## Internal deployment engine (`deploy.sh`)
 
-`systemd/lisa-edge.service` owns boot-time start/stop. `install-systemd.sh`
-installs runtime, backup, first-boot and OTBR dataset units and creates the
-`lisa-edge`/`lisa-edge-provision` command links.
+`ops/deploy/deploy.sh` is the reusable internal engine: it validates the
+current configuration, prepares service data, creates/updates/starts all
+selected services, and verifies stack health. Concretely it requires and
+loads `.env` (0600), validates `DATA_ROOT`, selection keys, image references
+and service-specific configuration, honors the caller-selected pull behavior
+(`--pull` refresh, `--offline` local-only, otherwise `LISA_PULL_POLICY`),
+prepares MQTT, initializes/restores Matter data BEFORE Matter starts, brings
+the Compose stack up with `--remove-orphans` (LISA stack only),
+initializes/restores/validates OTBR's dataset AFTER OTBR starts, and ends
+with the canonical health check. It is idempotent, fully non-interactive
+(it never prompts, including for Matter/OTBR Thread credential sync), and is
+invoked by: setup (fresh/restore/refresh/repair), `update`, `service
+add`/`remove`, live restore with `--start-services`, `reset data`, and
+systemd. It never runs host bootstrap phases, never updates Git, never
+changes the service selection, and never erases service data. The `--pull`
+and `--offline` options are implementation controls for those callers and
+direct troubleshooting, not root operator commands.
+
+`systemd/lisa-edge.service` owns boot-time start/stop and invokes the
+internal implementations directly (`ExecStart=.../ops/deploy/deploy.sh`,
+`ExecStop=.../ops/deploy/stop.sh`); boot is non-interactive by design.
+`install-systemd.sh` installs runtime, backup, first-boot and service backup
+units and creates the `lisa-edge`/`lisa-edge-provision` command links.
 
 ## Reset lifecycle
 

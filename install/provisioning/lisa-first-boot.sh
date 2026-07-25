@@ -28,13 +28,17 @@ ALL_SERVICE_NAMES="${SERVICE_IDS[*]}"
 
 usage() {
   cat <<'EOF'
-Usage: sudo install/provisioning/lisa-first-boot.sh [options]
+Usage: sudo ./lisa-edge setup [options]
+
+Interactive setup: configuration, restore, service refresh, host bootstrap,
+and host repair.
 
 Options:
-  --mode MODE       fresh, restore-usb, restore-path, or config-only
+  --mode MODE       fresh, restore-usb, restore-path, config-only,
+                    refresh, or repair
   --backup PATH     Backup archive or directory for restore-path
   --output PATH     Write environment file to PATH (default: repo .env)
-  --dry-run         Run the wizard without writing or deploying
+  --dry-run         Run the wizard without writing or applying anything
   -h, --help        Show this help
 EOF
 }
@@ -69,18 +73,22 @@ choose_mode() {
   [ -n "$MODE" ] && return 0
 
   echo
-  echo "Provisioning mode:"
-  echo "  1) Fresh deployment"
-  echo "  2) Restore from USB/local removable storage"
-  echo "  3) Restore from a mounted NAS/local path"
-  echo "  4) Configure .env only"
-  read -r -p "Select mode [1]: " choice
+  echo "Setup actions:"
+  echo "  1) Fresh setup"
+  echo "  2) Restore from removable storage (USB)"
+  echo "  3) Restore from a mounted local/NAS path"
+  echo "  4) Edit configuration only (nothing is applied)"
+  echo "  5) Refresh services using the current configuration"
+  echo "  6) Bootstrap or repair this host using the current configuration"
+  read -r -p "Select action [1]: " choice
   case "${choice:-1}" in
     1) MODE=fresh ;;
     2) MODE=restore-usb ;;
     3) MODE=restore-path ;;
     4) MODE=config-only ;;
-    *) die "Invalid provisioning mode." ;;
+    5) MODE=refresh ;;
+    6) MODE=repair ;;
+    *) die "Invalid setup action." ;;
   esac
 }
 
@@ -348,7 +356,7 @@ prepare_restore() {
   if [ "$DRY_RUN" -eq 1 ]; then
     info "Dry run: restore skipped."
   else
-    "$EDGE_REPO/lisa-edge" restore --no-deploy "$BACKUP_ARCHIVE"
+    bash "$EDGE_REPO/ops/backup-restore/restore.sh" --no-start-services "$BACKUP_ARCHIVE"
     load_environment
   fi
 }
@@ -456,37 +464,93 @@ write_environment() {
   info "Configuration written to $ENV_OUTPUT"
 }
 
+# After services were started/refreshed by an interactive workflow, check
+# the OTBR <-> Matter default-credential relationship through the shared
+# internal check-and-sync path. It prompts (default Yes) only when the
+# default credential is missing or differs, and never prompts without a
+# terminal.
+check_thread_relationship() {
+  contains_word "${LISA_COMPOSE_SERVICES:-}" matter || return 0
+  contains_word "${LISA_COMPOSE_SERVICES:-}" otbr || return 0
+  echo
+  "$EDGE_REPO/services/matter-server/thread-sync-if-needed.sh" || true
+}
+
 apply_provisioning() {
   local confirmed
   [ "$MODE" != "config-only" ] || return 0
   [ "$DRY_RUN" -eq 0 ] || return 0
 
-  ask_yes_no confirmed "Apply bootstrap and deploy selected services now" "yes"
+  ask_yes_no confirmed "Bootstrap this host and start the selected services now" "yes"
   [ "$confirmed" = "yes" ] || die "Provisioning cancelled; .env was saved."
 
   hostnamectl set-hostname "$LISA_EDGE_HOSTNAME" || warn "Could not update the runtime hostname."
-  "$EDGE_REPO/lisa-edge" bootstrap
+  bash "$EDGE_REPO/install/bootstrap/bootstrap.sh"
   install -d -m 0755 /var/lib/lisa-edge
   touch /var/lib/lisa-edge/provisioned
   rm -f /etc/update-motd.d/99-lisa-edge-provision
   systemctl disable lisa-first-boot.service >/dev/null 2>&1 || true
   info "Provisioning completed successfully."
+  check_thread_relationship
+}
+
+# Setup action 5: apply the current configuration through the internal
+# deployment engine. No Git update, no intentional image refresh (the
+# configured LISA_PULL_POLICY decides whether missing images are fetched);
+# the engine finishes with the canonical health check.
+run_refresh() {
+  [ -f "$EDGE_REPO/.env" ] ||
+    die "No configuration found ($EDGE_REPO/.env). Run a fresh setup first."
+  if [ "$DRY_RUN" -eq 1 ]; then
+    info "Dry run: service refresh skipped."
+    return 0
+  fi
+  info "Refreshing the selected services with the current configuration..."
+  bash "$EDGE_REPO/ops/deploy/deploy.sh"
+  info "Service refresh completed."
+  check_thread_relationship
+}
+
+# Setup action 6: rerun the idempotent host bootstrap (packages, hardening,
+# Docker, directories, systemd units) with the existing configuration, then
+# start/refresh services through the internal engine and verify health.
+run_repair() {
+  [ -f "$EDGE_REPO/.env" ] ||
+    die "No configuration found ($EDGE_REPO/.env). Run a fresh setup first."
+  if [ "$DRY_RUN" -eq 1 ]; then
+    info "Dry run: host bootstrap/repair skipped."
+    return 0
+  fi
+  info "Bootstrapping/repairing this host with the current configuration..."
+  bash "$EDGE_REPO/install/bootstrap/bootstrap.sh"
+  info "Host bootstrap/repair completed."
+  check_thread_relationship
 }
 
 main() {
   parse_args "$@"
-  if [ "$(id -u)" -ne 0 ] && [ "$DRY_RUN" -ne 1 ]; then
+  # LISA_EDGE_TESTING=1 is the shared test seam (mirrors reset-node.sh);
+  # real hosts never set it.
+  if [ "$(id -u)" -ne 0 ] && [ "$DRY_RUN" -ne 1 ] && [ "${LISA_EDGE_TESTING:-0}" != "1" ]; then
     die "Run as root: sudo $0"
   fi
 
   echo "============================================================"
-  echo " LISA Edge First-Boot Provisioning Wizard"
+  echo " LISA Edge Setup"
   echo "============================================================"
 
   load_environment
   choose_mode
   case "$MODE" in
     fresh|restore-usb|restore-path|config-only) ;;
+    refresh)
+      run_refresh
+      return 0
+      ;;
+    repair)
+      run_repair
+      return 0
+      ;;
     *) die "Unsupported mode: $MODE" ;;
   esac
   prepare_restore
@@ -499,7 +563,8 @@ main() {
   apply_provisioning
 
   if [ "$MODE" = "config-only" ]; then
-    info "Configuration only. Run sudo ./lisa-edge bootstrap when ready."
+    info "Configuration saved without being applied. Apply it later through"
+    info "'sudo ./lisa-edge setup' (Refresh services, or Bootstrap/repair)."
   fi
 }
 

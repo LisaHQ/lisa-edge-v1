@@ -44,9 +44,15 @@ canonical_files=(
   install/usb/scripts/prepare/prepare-rescue-usb.cmd
   services/registry.sh
   services/list.sh
+  services/lifecycle.sh
+  lib/env-file.sh
   ops/deploy/compose.yml
   ops/deploy/deploy.sh
+  ops/deploy/stop.sh
   ops/deploy/healthcheck.sh
+  ops/security/lib.sh
+  ops/security/audit.sh
+  ops/security/harden.sh
   ops/backup-restore/backup.sh
   ops/backup-restore/restore.sh
   ops/backup-restore/lib/validate_backup.py
@@ -68,6 +74,7 @@ canonical_files=(
   services/otbr/dataset/init-or-restore.sh
   services/matter-server/status.sh
   services/matter-server/thread.sh
+  services/matter-server/thread-sync-if-needed.sh
   services/matter-server/credentials.sh
   services/matter-server/lib/ws.sh
   services/matter-server/lib/ws-client.js
@@ -106,12 +113,38 @@ done
 echo "Checking stable operator CLI..."
 help_output="$(bash "$REPO_ROOT/lisa-edge" help)"
 for command in \
-  setup configure bootstrap deploy stop update health status diagnostics \
-  backup restore reset usb rescue service otbr matter doctor
+  setup update health status diagnostics \
+  backup restore reset usb rescue service security otbr matter doctor
 do
   grep -Fq "$command" <<<"$help_output" ||
     fail "CLI help does not advertise command: $command"
 done
+for service_line in \
+  'service list' 'service add' 'service remove' 'service start' 'service stop' \
+  'security audit' 'security harden'
+do
+  grep -Fq "$service_line" <<<"$help_output" ||
+    fail "CLI help does not advertise: $service_line"
+done
+# Removed root commands must not be advertised (as standalone commands).
+for removed in configure bootstrap deploy apply refresh reconcile
+do
+  if grep -Eq "^  ${removed}([[:space:]]|\$)" <<<"$help_output"; then
+    fail "CLI help still advertises the removed root command: $removed"
+  fi
+done
+if grep -Eq '^  stop([[:space:]]|$)' <<<"$help_output"; then
+  fail "CLI help still advertises the removed root command: stop"
+fi
+# Removed root commands must be rejected as unknown.
+for removed in configure bootstrap deploy stop apply refresh; do
+  if bash "$REPO_ROOT/lisa-edge" "$removed" >/dev/null 2>&1; then
+    fail "removed root command was accepted: $removed"
+  fi
+done
+if printf 'no\n' | bash "$REPO_ROOT/lisa-edge" service delete mqtt >/dev/null 2>&1; then
+  fail "'service delete' must be rejected (use 'service remove')"
+fi
 for reset_line in \
   'reset data' 'reset provisioning' 'reset factory'
 do
@@ -132,6 +165,15 @@ bash "$REPO_ROOT/lisa-edge" matter thread --help >/dev/null 2>&1
 bash "$REPO_ROOT/lisa-edge" doctor matter-thread --help >/dev/null 2>&1
 if bash "$REPO_ROOT/lisa-edge" definitely-not-a-command >/dev/null 2>&1; then
   fail "unknown CLI command was accepted"
+fi
+
+echo "Checking systemd runtime unit invokes the internal implementations..."
+grep -Fq 'ExecStart=/opt/lisa-edge/ops/deploy/deploy.sh' ops/deploy/systemd/lisa-edge.service ||
+  fail "the runtime unit must invoke the internal deployment engine directly"
+grep -Fq 'ExecStop=/opt/lisa-edge/ops/deploy/stop.sh' ops/deploy/systemd/lisa-edge.service ||
+  fail "the runtime unit must invoke the internal stack-stop implementation directly"
+if grep -Eq 'lisa-edge (deploy|stop)' ops/deploy/systemd/lisa-edge.service; then
+  fail "the runtime unit must not call removed root commands"
 fi
 
 echo "Checking Windows day-0 CLI targets..."

@@ -56,7 +56,7 @@ RESOLVED_OUTPUT="$(lisa_validate_secret_output_file "dataset export target" "$OU
 
 if ! otbr_container_is_running; then
   echo "ERROR: lisa-otbr container is not running." >&2
-  echo "Start it with: sudo ./lisa-edge deploy" >&2
+  echo "Start it with: sudo ./lisa-edge service start otbr" >&2
   exit 1
 fi
 

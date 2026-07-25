@@ -8,12 +8,15 @@ deployable selection keys is generated from `services/registry.sh`:
 ```
 
 Configure the complete service selection with `sudo ./lisa-edge setup` or edit
-`LISA_COMPOSE_SERVICES` in `.env`, then apply it with:
+one service at a time:
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add <service-key>
 sudo ./lisa-edge health
 ```
+
+Applying an edited `.env` without changing the selection is done through the
+setup menu's `Refresh services` action (`sudo ./lisa-edge setup`).
 
 `LISA_COMPOSE_SERVICES` is the whole selection, not an additive command. Keep
 existing keys when adding a service.

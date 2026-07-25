@@ -1,6 +1,7 @@
 # NTP / Chrony
 
-Chrony is a host capability installed during `sudo ./lisa-edge bootstrap`; it is
+Chrony is a host capability installed by the host bootstrap (run through
+`sudo ./lisa-edge setup`); it is
 not a container and has no `LISA_COMPOSE_SERVICES` key.
 
 Reliable time is required for logs, certificates, VPN and authentication. The

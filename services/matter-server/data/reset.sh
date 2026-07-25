@@ -34,7 +34,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ ! -f .env ]; then
-  echo "ERROR: missing .env; run 'sudo ./lisa-edge configure' (or setup) first." >&2
+  echo "ERROR: missing .env; run 'sudo ./lisa-edge setup' first." >&2
   exit 1
 fi
 set -a

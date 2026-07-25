@@ -33,7 +33,12 @@ cat > "$TREE/services/matter-server/thread.sh" <<EOF
 #!/usr/bin/env bash
 echo "matter-thread \$*" >> "$CALL_LOG"
 EOF
-chmod +x "$TREE/services/otbr/dataset/backup.sh" "$TREE/services/matter-server/thread.sh"
+cat > "$TREE/services/matter-server/thread-sync-if-needed.sh" <<EOF
+#!/usr/bin/env bash
+echo "thread-sync-if-needed \$*" >> "$CALL_LOG"
+EOF
+chmod +x "$TREE/services/otbr/dataset/backup.sh" "$TREE/services/matter-server/thread.sh" \
+  "$TREE/services/matter-server/thread-sync-if-needed.sh"
 
 cat > "$TREE/.env" <<'EOF'
 THREAD_NETWORK_NAME=LISA-HOME-01
@@ -131,8 +136,11 @@ case "$ORDER" in
 esac
 grep -q '^backup --label network-create' "$CALL_LOG" ||
   fail "the new dataset must be backed up"
-grep -q '^matter-thread sync --from-otbr' "$CALL_LOG" ||
-  fail "creation must trigger the Matter thread sync when matter is selected"
+grep -q '^thread-sync-if-needed' "$CALL_LOG" ||
+  fail "creation must run the shared Matter check-and-sync path when matter is selected"
+if grep -q '^matter-thread sync' "$CALL_LOG"; then
+  fail "creation must not call the sync CLI directly (shared path only)"
+fi
 if grep -q '^backup --label pre-network-create' "$CALL_LOG"; then
   fail "fresh creation must not claim a pre-replacement backup"
 fi

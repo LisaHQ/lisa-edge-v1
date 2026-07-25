@@ -120,7 +120,7 @@ log_lacks 'systemctl enable --now lisa-edge-backup.timer' ||
 log_lacks 'systemctl start lisa-edge-backup.timer' ||
   fail "a failed redeploy must not start any backup timer"
 output_contains 'redeploy FAILED' || fail "a failed redeploy must be reported clearly"
-output_contains 'sudo ./lisa-edge deploy' || fail "the exact recovery command must be printed"
+output_contains "sudo ./lisa-edge setup" || fail "the exact recovery command must be printed"
 output_contains 'reset data completed' && fail "a failed redeploy must not claim success"
 
 # ===========================================================================

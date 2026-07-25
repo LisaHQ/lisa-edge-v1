@@ -9,6 +9,6 @@ Configure `NODE_RED_BIND_ADDR` and `NODE_RED_PORT` through
 Persistent flows and configuration live at
 `${DATA_ROOT}/docker/volumes/node-red/` and are included in full backups.
 
-Deploy with `sudo ./lisa-edge deploy` and verify with
+Add it with `sudo ./lisa-edge service add node-red` and verify with
 `sudo ./lisa-edge health`. Large or business-critical automation flows normally
 belong on LISA Brain or another automation host.

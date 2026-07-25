@@ -4,8 +4,8 @@ Uptime Kuma is the default lightweight monitoring UI. Its selection key is
 `uptime-kuma`; the canonical owner is
 [`services/uptime-kuma/`](../../services/uptime-kuma/README.md).
 
-Configure `UPTIME_KUMA_BIND_ADDR` and `UPTIME_KUMA_PORT` through
-`sudo ./lisa-edge setup`, then deploy with `sudo ./lisa-edge deploy`. The default
+Add it with `sudo ./lisa-edge service add uptime-kuma` (the wizard asks for
+`UPTIME_KUMA_BIND_ADDR` and `UPTIME_KUMA_PORT`). The default
 bind is `127.0.0.1:3001`; use VPN or an explicitly trusted bind address for
 remote access.
 

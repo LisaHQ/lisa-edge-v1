@@ -33,7 +33,7 @@ field() { printf '%-26s%s\n' "$1" "$2"; }
 
 if [ ! -f .env ]; then
   field "Status:" "NOT CONFIGURED"
-  echo "Missing .env. Run: sudo ./lisa-edge configure"
+  echo "Missing .env. Run: sudo ./lisa-edge setup"
   exit 0
 fi
 set -a
@@ -51,7 +51,7 @@ set +a
 
 if ! lisa_has_service matter; then
   field "Status:" "NOT CONFIGURED"
-  echo "Matter is not in LISA_COMPOSE_SERVICES. Run: sudo ./lisa-edge configure"
+  echo "Matter is not in LISA_COMPOSE_SERVICES. Add it with: sudo ./lisa-edge service add matter"
   exit 0
 fi
 
@@ -76,7 +76,7 @@ field "Bluetooth adapter:" "$BLE_ADAPTER"
 
 if [ "$CONTAINER_STATE" != "running" ]; then
   field "Status:" "STOPPED"
-  echo "Start it with: sudo ./lisa-edge deploy"
+  echo "Start it with: sudo ./lisa-edge service start matter"
   exit 0
 fi
 case "$CONTAINER_HEALTH" in

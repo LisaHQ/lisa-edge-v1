@@ -36,11 +36,11 @@ Explicit fresh mode:
 sudo ./lisa-edge setup --mode fresh
 ```
 
-Configuration only:
+Configuration only (applied later through the setup menu's
+`Refresh services` or `Bootstrap or repair` actions):
 
 ```bash
-sudo ./lisa-edge configure
-sudo ./lisa-edge bootstrap
+sudo ./lisa-edge setup --mode config-only
 ```
 
 ## Restore from USB

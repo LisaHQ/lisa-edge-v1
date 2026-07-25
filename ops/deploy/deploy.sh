@@ -1,7 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Internal full-stack deployment engine. NOT a root CLI command.
+#
+# Responsibility: validate the current configuration, prepare service data,
+# create/update/start all selected services, and verify stack health.
+#
+# Callers: setup (fresh/restore/refresh/repair), lisa-edge update, service
+# add/remove, live restore with --start-services, reset workflows, and the
+# systemd runtime unit (which invokes this script directly). It is safe to
+# rerun, fully non-interactive, and never prompts. It does not run host
+# bootstrap phases, does not update Git, does not change the service
+# selection, and never erases service data.
+#
+# Options (internal controls for trusted callers and troubleshooting):
+#   --pull     refresh the selected images (update uses this)
+#   --offline  require all selected images to exist locally
+# Without a flag the configured LISA_PULL_POLICY applies.
+
 EDGE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$EDGE_REPO"
+
+# Anything started through the engine (including automatic OTBR dataset
+# restore/network creation) must never prompt for a Matter Thread credential
+# sync; interactive workflows check and prompt AFTER the engine completes.
+export LISA_THREAD_SYNC_NO_PROMPT=1
 
 PULL_POLICY=""
 while [ "$#" -gt 0 ]; do
@@ -18,7 +41,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ ! -f .env ]; then
-  echo "Missing .env. Copy .env.template to .env and review it first." >&2
+  echo "Missing .env; run 'sudo ./lisa-edge setup' first." >&2
   exit 1
 fi
 chmod 0600 .env

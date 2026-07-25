@@ -7,8 +7,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/lisa-edge
-ExecStart=/opt/lisa-edge/lisa-edge deploy
-ExecStop=/opt/lisa-edge/lisa-edge stop
+ExecStart=/opt/lisa-edge/ops/deploy/deploy.sh
+ExecStop=/opt/lisa-edge/ops/deploy/stop.sh
 RemainAfterExit=yes
 TimeoutStartSec=0
 

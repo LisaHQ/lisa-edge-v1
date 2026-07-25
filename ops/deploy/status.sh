@@ -6,7 +6,7 @@ cd "$EDGE_REPO"
 
 if [ ! -f .env ]; then
   echo "LISA Edge is not configured: $EDGE_REPO/.env is missing." >&2
-  echo "Run: sudo ./lisa-edge configure" >&2
+  echo "Run: sudo ./lisa-edge setup" >&2
   exit 1
 fi
 

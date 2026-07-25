@@ -5,10 +5,10 @@
 - Container: `lisa-uptime`
 - UI: `UPTIME_KUMA_BIND_ADDR:UPTIME_KUMA_PORT`, default `127.0.0.1:3001`
 
-Configure it with `sudo ./lisa-edge setup`, then run:
+Add, configure, start, and verify it with:
 
 ```bash
-sudo ./lisa-edge deploy
+sudo ./lisa-edge service add uptime-kuma
 sudo ./lisa-edge health
 ```
 

@@ -34,15 +34,19 @@ unreviewed development branch.
 sudo ./lisa-edge setup
 ```
 
-Choose **Fresh deployment**, review storage and backup paths, select services,
-and complete each selected service's wizard. When prompted, allow setup to run
-bootstrap and deploy.
+Choose **Fresh setup**, review storage and backup paths, select services,
+and complete each selected service's wizard. When prompted, allow setup to
+bootstrap the host and start the selected services.
 
 Setup performs the full path:
 
 ```text
-configuration → host bootstrap → service deployment → systemd install → health
+configuration → host bootstrap → systemd install → internal deployment engine → health
 ```
+
+When both Matter and OTBR are selected, setup then checks whether the Matter
+server's default Thread credential matches OTBR's active dataset and offers
+to copy it (default Yes) only when it is missing or differs.
 
 ### 3. Verify
 
@@ -53,19 +57,18 @@ sudo ./lisa-edge health
 
 Then complete the [Deployment Validation](05-deployment-validation.md).
 
-## Configure now, bootstrap later
+## Configure now, apply later
 
-To write or update `.env` without changing the host or starting services:
+To write or update `.env` without changing the host or starting services,
+run `sudo ./lisa-edge setup` and choose **Edit configuration only**.
 
-```bash
-sudo ./lisa-edge configure
-```
+Review the result, then apply it later through the same menu:
 
-Review the result, then apply it later:
-
-```bash
-sudo ./lisa-edge bootstrap
-```
+- **Refresh services using the current configuration** starts/refreshes the
+  selected services through the internal deployment engine and verifies
+  health (no Git update, no intentional image refresh).
+- **Bootstrap or repair this host** additionally reruns the idempotent host
+  bootstrap phases and systemd unit installation first.
 
 Do not hand-copy `.env.template` for a normal installation. The wizard validates
 paths, service dependencies, ports, image policy, backup mounts, and admin
@@ -74,12 +77,17 @@ access that a manual copy would bypass.
 ## Add or remove services later
 
 ```bash
-sudo ./lisa-edge setup
+sudo ./lisa-edge service add <service-key>
+sudo ./lisa-edge service remove <service-key>
 ```
 
-Re-running setup preserves existing values as defaults and backs up the current
-`.env` before replacing it. Persistent service data is not deleted when a
-service is deselected.
+`service add` configures only the new service (plus required dependencies),
+updates `.env` atomically with a pre-change copy, refreshes the stack through
+the internal deployment engine, and verifies health. `service remove` prints
+a complete plan, requires an exact typed confirmation, creates a fresh
+dedicated backup for Matter/OTBR first, and preserves backups and images by
+default. Re-running the full `setup` wizard also works and preserves
+existing values as defaults.
 
 ## Next steps
 

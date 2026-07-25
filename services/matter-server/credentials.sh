@@ -42,7 +42,7 @@ if [ "$ACTION" != "list" ]; then
 fi
 
 if [ ! -f .env ]; then
-  echo "ERROR: missing .env; run 'sudo ./lisa-edge configure' (or setup) first." >&2
+  echo "ERROR: missing .env; run 'sudo ./lisa-edge setup' first." >&2
   exit 1
 fi
 set -a
@@ -55,7 +55,7 @@ set +a
 
 if ! matter_ws_container_running; then
   echo "ERROR: lisa-matter container is not running." >&2
-  echo "Start it with: sudo ./lisa-edge deploy" >&2
+  echo "Start it with: sudo ./lisa-edge service start matter" >&2
   exit 1
 fi
 

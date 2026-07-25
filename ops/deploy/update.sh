@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# LISA Edge update (operator entry point: lisa-edge update [clean]).
+#
+# Meaning: update the repository, refresh selected container images, run
+# the internal deployment engine, and verify health. Untracked files (.env,
+# runtime data, secrets) are always preserved. This workflow is fully
+# non-interactive: it never prompts for a Matter/OTBR Thread credential
+# sync; when credentials are missing or drifted, the engine's health check
+# reports DEGRADED and prints the manual remediation command
+# (sudo ./lisa-edge matter thread sync) while the services keep running.
+#
+# To apply the current local configuration WITHOUT obtaining updates, use
+# the setup menu's "Refresh services" action instead (sudo ./lisa-edge
+# setup); it runs the engine without Git update or intentional image
+# refresh.
+
 EDGE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$EDGE_REPO"
 

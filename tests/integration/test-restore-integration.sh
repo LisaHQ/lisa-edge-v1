@@ -33,7 +33,7 @@ restore_for_test() {
   LISA_EDGE_TESTING=1 \
     LISA_RESTORE_TARGET_ROOT="$target" \
     PYTHON_BIN="$PYTHON_BIN" \
-    bash "$RESTORE" --no-deploy "$archive"
+    bash "$RESTORE" --no-start-services "$archive"
 }
 
 echo "Testing legacy absolute-path backup format v2..."

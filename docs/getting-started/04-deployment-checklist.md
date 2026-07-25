@@ -82,7 +82,7 @@ Review the current service keys:
 Run a non-writing wizard pass:
 
 ```bash
-./lisa-edge configure --dry-run
+./lisa-edge setup --mode config-only --dry-run
 ```
 
 Resolve unsafe paths, endpoint conflicts, missing dependencies, or image-policy
@@ -96,11 +96,11 @@ Fresh or interactive restore:
 sudo ./lisa-edge setup
 ```
 
-Configuration only:
+Configuration only, applied later:
 
 ```bash
-sudo ./lisa-edge configure
-sudo ./lisa-edge bootstrap
+sudo ./lisa-edge setup    # choose "Edit configuration only", then later
+                          # "Bootstrap or repair this host"
 ```
 
 After setup, continue with the

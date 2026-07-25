@@ -19,7 +19,7 @@ Thread network.
 2. Configure without deploying; select OTBR and the correct RCP/backbone:
 
    ```bash
-   sudo ./lisa-edge configure
+   sudo ./lisa-edge setup    # choose "Edit configuration only"
    ```
 
 3. Point the wizard at the saved dataset. The OTBR wizard's "Thread dataset
@@ -37,7 +37,7 @@ Thread network.
    saved dataset automatically:
 
    ```bash
-   sudo ./lisa-edge bootstrap
+   sudo ./lisa-edge setup    # choose "Bootstrap or repair this host"
    ```
 
 5. Verify attachment and dataset identity (no secrets are printed):
@@ -96,7 +96,7 @@ ls -l /dev/serial/by-id/
 Common causes: `THREAD_RADIO_DEVICE` does not point at the attached RCP radio,
 the radio re-enumerated under a new path after replugging, `THREAD_RADIO_URL`
 uses the wrong UART baud rate, or `OTBR_BACKBONE_IF` does not match an active
-host interface. Fix `.env` (or rerun `sudo ./lisa-edge configure`) and deploy
-again.
+host interface. Fix `.env` (or rerun `sudo ./lisa-edge setup` with `Edit configuration
+only`), then apply it with the setup menu's `Refresh services` action.
 
 Implementation ownership: [`services/otbr/`](../../../services/otbr/README.md).

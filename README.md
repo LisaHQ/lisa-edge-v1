@@ -22,16 +22,21 @@ You should not need to know where an implementation script lives.
 | I need to… | Command |
 | --- | --- |
 | Set up a new or restored host | `sudo ./lisa-edge setup` |
-| Write or update `.env` only | `sudo ./lisa-edge configure` |
-| Bootstrap an already configured host | `sudo ./lisa-edge bootstrap` |
-| Start or reconcile services | `sudo ./lisa-edge deploy` |
-| Stop services | `sudo ./lisa-edge stop` |
-| Update Git and selected images | `sudo ./lisa-edge update` |
+| Edit `.env` only, without applying it | `sudo ./lisa-edge setup` → *Edit configuration only* |
+| Apply the current configuration (no update) | `sudo ./lisa-edge setup` → *Refresh services* |
+| Bootstrap or repair an already configured host | `sudo ./lisa-edge setup` → *Bootstrap or repair* |
+| Get and activate a newer LISA Edge version | `sudo ./lisa-edge update` |
 | Discard local changes and update | `sudo ./lisa-edge update clean` |
 | See runtime state | `sudo ./lisa-edge status` |
 | Run readiness checks (HEALTHY/DEGRADED/FAILED) | `sudo ./lisa-edge health` |
 | Fail on degradations too (monitoring) | `sudo ./lisa-edge health --strict` |
 | List selectable services | `./lisa-edge service list` |
+| Add, configure, start, and verify one service | `sudo ./lisa-edge service add <service-key>` |
+| Remove one service and its active data safely | `sudo ./lisa-edge service remove <service-key>` |
+| Start services without changing selection | `sudo ./lisa-edge service start [service-key ...]` |
+| Stop services without changing selection | `sudo ./lisa-edge service stop [service-key ...]` |
+| Inspect security posture (read-only) | `sudo ./lisa-edge security audit` |
+| Apply bounded, lockout-safe hardening | `sudo ./lisa-edge security harden` |
 | See OTBR / Thread state | `sudo ./lisa-edge otbr status` |
 | Show the Thread dataset (secrets redacted) | `sudo ./lisa-edge otbr dataset show` |
 | Export the Thread dataset to a 0600 file | `sudo ./lisa-edge otbr dataset export --output <file>` |
@@ -75,8 +80,14 @@ sudo ./lisa-edge setup
 sudo ./lisa-edge health
 ```
 
-`setup` starts the provisioning wizard. A fresh setup writes `.env`, asks for
-service-specific settings, and offers to bootstrap and deploy the host.
+`setup` is the single interactive entry point: fresh setup, restore, editing
+the configuration, refreshing services from the current configuration, and
+host bootstrap/repair all live in its menu. A fresh setup writes `.env`, asks
+for service-specific settings, bootstraps the host, and starts the selected
+services through the internal deployment engine. When both Matter and OTBR
+are selected and running, setup checks the Thread credential relationship and
+offers to copy OTBR's active dataset into the Matter server's default
+credential only when they do not already match.
 
 For a production USB install or an existing backup, choose the matching path:
 
@@ -101,8 +112,8 @@ UEFI USB (no Rufus or other imaging tool needed), and injects the autoinstall
 profile in one pass. When no disk number is given it lists the USB disks and
 asks which one to use; `usb list` shows them on demand.
 
-Runtime commands (`setup`, `deploy`, `backup`, ...) still run on the Linux
-host via `./lisa-edge`.
+Runtime commands (`setup`, `update`, `service`, `backup`, ...) still run on
+the Linux host via `./lisa-edge`.
 
 ## Current capabilities
 
@@ -152,9 +163,10 @@ or mini PC can be used when its CPU architecture supports the selected images.
 | [`install/provisioning/`](install/provisioning/README.md) | changing first-boot and site-specific setup |
 | [`install/bootstrap/`](install/bootstrap/README.md) | changing host packages, hardening, Docker, or storage preparation |
 | [`services/`](services/README.md) | changing one service's Compose, config, provisioning, or preparation |
-| `ops/deploy/` | changing deploy, stop, update, health, status, or runtime systemd behavior |
+| `ops/deploy/` | changing the internal deployment engine, update, health, status, or runtime systemd behavior |
 | `ops/backup-restore/` | changing full-stack backup, restore, archive validation, or timers |
 | `ops/diagnostics/` | changing production diagnostic collection |
+| `ops/security/` | changing the security audit or the bounded hardening |
 | [`rescue/`](rescue/README.md) | maintaining the independent Rescue OS and disaster-recovery tools |
 | [`docs/`](docs/README.md) | understanding architecture, security, networking, or detailed procedures |
 | [`tools/`](tools/README.md) | building assets or validating the repository |

@@ -19,7 +19,7 @@ commissioned-device state; whoever holds it can control the fabric.
 2. Configure without deploying; select the Matter service:
 
    ```bash
-   sudo ./lisa-edge configure
+   sudo ./lisa-edge setup    # choose "Edit configuration only"
    ```
 
 3. Point the wizard at the saved archive. The Matter wizard's "Matter data
@@ -38,7 +38,7 @@ commissioned-device state; whoever holds it can control the fabric.
    the saved archive automatically before the container starts:
 
    ```bash
-   sudo ./lisa-edge bootstrap
+   sudo ./lisa-edge setup    # choose "Bootstrap or repair this host"
    ```
 
 5. Verify:
@@ -66,7 +66,7 @@ that archive:
 ```bash
 sudo services/matter-server/data/restore.sh \
   /srv/lisa-edge/backups/matter/matter-data-<timestamp>-pre-image-change.tar.gz
-sudo ./lisa-edge deploy
+sudo ./lisa-edge setup    # choose "Refresh services"
 ```
 
 Devices commissioned only after the migration exist solely in the
