@@ -1,0 +1,14 @@
+# LISA Edge image advisory catalog (Git-managed; reviewed with code changes).
+# Format (single TAB between fields):
+# service-key<TAB>full-image-reference<TAB>status<TAB>note
+#
+# Supported statuses:
+#   known-issue  offered but never the automatic default; selecting it
+#                repeats the note and requires explicit confirmation
+#   blocked      refused wherever it appears (current, default, discovered,
+#                or custom input); another image must be selected
+#
+# Notes are single-line observations from LISA Edge testing, not universal
+# upstream statements. Absence from this catalog only means LISA Edge has
+# no recorded issue for that exact image reference.
+matter	ghcr.io/matter-js/matterjs-server:1.3.1	known-issue	BLE commissioning regression observed by LISA Edge

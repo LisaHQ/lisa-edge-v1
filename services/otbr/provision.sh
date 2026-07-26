@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-OTBR_IMAGE_REPOSITORY="openthread/border-router"
-
 # Print one /dev/serial/by-id/ device path per line. Empty output when no
 # serial radio is attached.
 otbr_detect_serial_devices() {
@@ -25,78 +23,6 @@ otbr_default_route_interface() {
   command -v ip >/dev/null 2>&1 || return 0
   ip -4 route show default 2>/dev/null |
     awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}'
-}
-
-# Print every vYYYY.MM.N release tag found in Docker Hub tag-list JSON on
-# stdin, one per line. Prints nothing when no release tag is present.
-otbr_release_tags_from_page() {
-  grep -oE '"name"[[:space:]]*:[[:space:]]*"v[0-9]{4}\.[0-9]{2}\.[0-9]+"' |
-    grep -oE 'v[0-9]{4}\.[0-9]{2}\.[0-9]+' || true
-}
-
-# Read Docker Hub tag-list JSON on stdin and print the newest vYYYY.MM.N
-# release tag. Prints nothing when no release tag is present.
-otbr_latest_release_tag() {
-  otbr_release_tags_from_page | sort -uV | tail -n 1
-}
-
-# Print the "next" page URL from Docker Hub tag-list JSON on stdin, or
-# nothing at the last page. Only hub.docker.com URLs are followed, so a
-# hostile response cannot redirect the query elsewhere.
-otbr_tags_next_url() {
-  local url
-  url="$(grep -oE '"next"[[:space:]]*:[[:space:]]*"[^"]+"' |
-    head -n 1 | sed -E 's/.*"next"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
-  case "$url" in
-    https://hub.docker.com/*) printf '%s\n' "$url" ;;
-    *) : ;;
-  esac
-}
-
-# Fetch one URL with a bounded timeout. Overridable in tests.
-otbr_fetch_url() {
-  curl -fsS --max-time "${OTBR_IMAGE_QUERY_TIMEOUT:-8}" "$1" 2>/dev/null
-}
-
-# Print the OTBR release tags found on Docker Hub, newest first and unique,
-# following tag-list pagination with a bounded page count (release tags are
-# not guaranteed to appear on the first page between releases). Fails
-# (non-zero) when offline, curl is missing, or no release tag exists on any
-# fetched page.
-otbr_query_release_tags() {
-  local url="https://hub.docker.com/v2/repositories/$OTBR_IMAGE_REPOSITORY/tags?page_size=100"
-  local max_pages="${OTBR_IMAGE_QUERY_MAX_PAGES:-5}"
-  local pages=0 response all_tags="" tags
-  command -v curl >/dev/null 2>&1 || return 1
-  while [ -n "$url" ] && [ "$pages" -lt "$max_pages" ]; do
-    response="$(otbr_fetch_url "$url")" || return 1
-    all_tags+="$(printf '%s' "$response" | otbr_release_tags_from_page)"$'\n'
-    url="$(printf '%s' "$response" | otbr_tags_next_url)"
-    pages=$((pages + 1))
-  done
-  tags="$(printf '%s' "$all_tags" | grep -E '^v' | sort -urV || true)"
-  [ -n "$tags" ] || return 1
-  printf '%s\n' "$tags"
-}
-
-# Resolve the newest OTBR release image reference from Docker Hub.
-otbr_query_latest_image() {
-  local tags
-  tags="$(otbr_query_release_tags)" || return 1
-  printf '%s:%s\n' "$OTBR_IMAGE_REPOSITORY" "$(head -n 1 <<<"$tags")"
-}
-
-# True when the image reference is the default repository on a floating tag.
-# Pinned digests, release tags, and custom registries are left untouched.
-otbr_image_is_floating() {
-  local image="$1"
-  if lisa_is_pinned_image "$image"; then
-    return 1
-  fi
-  case "$image" in
-    "$OTBR_IMAGE_REPOSITORY" | "$OTBR_IMAGE_REPOSITORY:latest" | "$OTBR_IMAGE_REPOSITORY:main") return 0 ;;
-    *) return 1 ;;
-  esac
 }
 
 configure_otbr_radio() {
@@ -155,37 +81,16 @@ configure_otbr_backbone() {
   fi
 }
 
-configure_otbr_image() {
-  local current_image="${OTBR_IMAGE:-$OTBR_IMAGE_REPOSITORY:latest}"
-  local default_image="$current_image" release_tags="" options=() tag count=0
-  if otbr_image_is_floating "$current_image"; then
-    info "Resolving recent OTBR release tags from Docker Hub..."
-    if release_tags="$(otbr_query_release_tags)"; then
-      # Offer the newest releases as a numbered menu; the newest one stays
-      # the default (a custom reference can still be typed in).
-      while IFS= read -r tag; do
-        [ "$count" -lt "${OTBR_IMAGE_CHOICE_COUNT:-5}" ] || break
-        options+=("$OTBR_IMAGE_REPOSITORY:$tag")
-        count=$((count + 1))
-      done <<<"$release_tags"
-      default_image="${options[0]}"
-      ask_choice OTBR_IMAGE "Recent OTBR release images (newest first)" \
-        "$default_image" "${options[@]}"
-      return 0
-    fi
-    warn "Could not resolve OTBR release tags (offline or Docker Hub unreachable); keeping $current_image."
-  fi
-  ask_value OTBR_IMAGE "OTBR container image" "$default_image"
-}
-
 # True when the lisa-otbr container is currently running on this host.
 otbr_container_running() {
   command -v docker >/dev/null 2>&1 || return 1
   grep -qx lisa-otbr <<<"$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
 }
 
-# Detect existing Thread dataset backups and stage the operator's choice as a
-# one-shot pending marker consumed by dataset/init-or-restore.sh on deploy.
+# ONE-SHOT action for the NEXT deploy: detect existing Thread dataset
+# backups and stage the operator's choice as a pending marker consumed
+# exactly once by dataset/init-or-restore.sh. This is deliberately separate
+# from the persistent recovery policy configured afterwards.
 configure_otbr_dataset_source() {
   local search_root="" selection="" description="" answer choice item index
   local backups=() default_choice otbr_running=0
@@ -196,9 +101,12 @@ configure_otbr_dataset_source() {
   pending_dataset="$OTBR_DATASET_BACKUP_DIR/$OTBR_PENDING_DATASET_FILE_NAME"
   pending_new_network="$OTBR_DATASET_BACKUP_DIR/$OTBR_PENDING_NEW_NETWORK_FILE_NAME"
   otbr_container_running && otbr_running=1
+  OTBR_NEXT_DEPLOY_ACTION="none"
 
   echo
-  echo "--- Thread dataset detection ---"
+  echo "--- OTBR Thread dataset: one-shot action for the NEXT deploy ---"
+  info "This stages a single restore/replace action applied once by the next"
+  info "deploy. The persistent recovery policy is configured separately below."
   if [ -d "$OTBR_DATASET_BACKUP_DIR" ]; then
     ask_choice search_root "Path to scan for Thread dataset backups" \
       "$OTBR_DATASET_BACKUP_DIR" "$OTBR_DATASET_BACKUP_DIR"
@@ -208,7 +116,7 @@ configure_otbr_dataset_source() {
   fi
 
   if [ -z "$search_root" ]; then
-    info "Skipping Thread dataset detection."
+    info "No one-shot Thread dataset action."
   elif [ -f "$search_root" ]; then
     selection="$search_root"
   elif [ -d "$search_root" ]; then
@@ -220,8 +128,8 @@ configure_otbr_dataset_source() {
         printf '  %d) %s\n' "$index" "$item"
         index=$((index + 1))
       done
-      echo "  n) Create a new Thread network instead"
-      echo "  s) Skip (keep the current dataset behavior)"
+      echo "  n) Create a new Thread network on the next deploy"
+      echo "  s) No one-shot data action"
       # Default to the safe choice when a border router is already running.
       default_choice=1
       [ "$otbr_running" -eq 1 ] && default_choice=s
@@ -264,10 +172,7 @@ configure_otbr_dataset_source() {
 
   if [ "$otbr_running" -eq 1 ]; then
     info "OTBR is currently running. Its active dataset will be backed up before the selected change is applied."
-    ask_yes_no answer "Add a description to that backup's filename" "no"
-    if [ "$answer" = "yes" ]; then
-      ask_value description "Backup description (sanitized for the filename)" ""
-    fi
+    ask_value description "Backup description (optional; Enter to skip)" ""
     if [ "${DRY_RUN:-0}" -eq 1 ]; then
       info "Dry run: backup of the running dataset skipped."
     elif "$EDGE_REPO/services/otbr/dataset/backup.sh" ${description:+--label "$description"}; then
@@ -275,6 +180,12 @@ configure_otbr_dataset_source() {
     else
       warn "Could not back up the running dataset now; deploy backs it up again before applying the change."
     fi
+  fi
+
+  if [ "$selection" = "new" ]; then
+    OTBR_NEXT_DEPLOY_ACTION="create a NEW Thread network"
+  else
+    OTBR_NEXT_DEPLOY_ACTION="restore dataset from $selection"
   fi
 
   if [ "${DRY_RUN:-0}" -eq 1 ]; then
@@ -300,6 +211,53 @@ configure_otbr_dataset_source() {
   info "To cancel before deploying, delete $pending_dataset and $pending_new_network."
 }
 
+# PERSISTENT recovery policy: what a LATER deploy does when it finds no
+# active Thread dataset and no staged one-shot action. Stored in
+# OTBR_AUTO_RESTORE_DATASET / OTBR_AUTO_CREATE_NETWORK. Creation never
+# replaces an existing backup: when a latest backup exists but restoration
+# is disabled, deploy fails closed instead of creating a new network.
+configure_otbr_recovery_policy() {
+  local current_policy=1 choice
+  case "${OTBR_AUTO_RESTORE_DATASET:-1}:${OTBR_AUTO_CREATE_NETWORK:-0}" in
+    1:0) current_policy=1 ;;
+    1:1) current_policy=2 ;;
+    0:1) current_policy=3 ;;
+    0:0) current_policy=4 ;;
+  esac
+  echo
+  echo "--- Future OTBR recovery policy ---"
+  info "This policy is separate from the one-shot action above. It applies to"
+  info "LATER deploys that find NO active Thread dataset and no staged action."
+  info "A new network is only ever created automatically when NO latest backup"
+  info "exists; an existing backup with restoration disabled stops the deploy."
+  ask_menu choice "Empty-dataset recovery policy" "$current_policy" \
+    "Restore the latest dataset backup; fail when none exists (recommended)" \
+    "Restore the latest dataset backup; create a NEW network only when no backup exists" \
+    "Never restore; create a NEW network only when no backup exists" \
+    "Never restore or create automatically; deploy stops with guidance"
+  # Both variables look unused here, but lisa-first-boot.sh writes them into
+  # .env via env_line().
+  # shellcheck disable=SC2034
+  case "$ASK_MENU_INDEX" in
+    1) OTBR_AUTO_RESTORE_DATASET=1; OTBR_AUTO_CREATE_NETWORK=0 ;;
+    2) OTBR_AUTO_RESTORE_DATASET=1; OTBR_AUTO_CREATE_NETWORK=1 ;;
+    3) OTBR_AUTO_RESTORE_DATASET=0; OTBR_AUTO_CREATE_NETWORK=1 ;;
+    4) OTBR_AUTO_RESTORE_DATASET=0; OTBR_AUTO_CREATE_NETWORK=0 ;;
+  esac
+}
+
+# Human-readable rendering of the stored OTBR recovery policy (used by the
+# wizard summary).
+otbr_recovery_policy_text() {
+  case "${OTBR_AUTO_RESTORE_DATASET:-1}:${OTBR_AUTO_CREATE_NETWORK:-0}" in
+    1:0) printf '%s\n' "restore latest backup; fail when none exists" ;;
+    1:1) printf '%s\n' "restore latest backup; create a new network only when no backup exists" ;;
+    0:1) printf '%s\n' "never restore; create a new network only when no backup exists" ;;
+    0:0) printf '%s\n' "never restore or create automatically; deploy fails with guidance" ;;
+    *) printf '%s\n' "invalid policy values (fix OTBR_AUTO_RESTORE_DATASET/OTBR_AUTO_CREATE_NETWORK)" ;;
+  esac
+}
+
 # Ask for the Thread network name (used when a NEW network is created; an
 # established network is never renamed). The name identifies the logical
 # site mesh, not the host, the border router, or the radio: it must survive
@@ -319,12 +277,10 @@ configure_otbr_network_name() {
 }
 
 configure_otbr() {
-  local answer
   echo
   echo "--- OpenThread Border Router wizard ---"
   configure_otbr_radio
   configure_otbr_backbone
-  configure_otbr_image
   configure_otbr_network_name
   ask_value OTBR_THREAD_IF "Thread interface name (custom allowed, max 15 chars; default recommended)" "${OTBR_THREAD_IF:-wpan0}"
   ask_value OTBR_LOG_LEVEL "OTBR log level" "${OTBR_LOG_LEVEL:-5}"
@@ -334,14 +290,7 @@ configure_otbr() {
   # shellcheck disable=SC2034
   OTBR_DATASET_LATEST="$OTBR_DATASET_BACKUP_DIR/latest.dataset.hex"
   configure_otbr_dataset_source
-  ask_yes_no answer "Automatically restore the latest Thread dataset" "yes"
-  # OTBR_AUTO_RESTORE_DATASET looks unused here, but lisa-first-boot.sh writes it into .env via env_line().
-  # shellcheck disable=SC2034
-  [ "$answer" = "yes" ] && OTBR_AUTO_RESTORE_DATASET=1 || OTBR_AUTO_RESTORE_DATASET=0
-  ask_yes_no answer "Allow creating a new Thread network when no backup exists" "no"
-  # OTBR_AUTO_CREATE_NETWORK looks unused here, but lisa-first-boot.sh writes it into .env via env_line().
-  # shellcheck disable=SC2034
-  [ "$answer" = "yes" ] && OTBR_AUTO_CREATE_NETWORK=1 || OTBR_AUTO_CREATE_NETWORK=0
+  configure_otbr_recovery_policy
   # Consumed by install/bootstrap/phases/40-core-service-prep.sh and written to .env.
   # shellcheck disable=SC2034
   LISA_ENABLE_THREAD_HOST_PREP=1

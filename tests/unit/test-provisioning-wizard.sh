@@ -5,13 +5,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WIZARD="$REPO_ROOT/install/provisioning/lisa-first-boot.sh"
 
+# Remote tag discovery stays off in tests; the image menus render their
+# offline fallback (current/template/cataloged choices).
+export LISA_IMAGE_QUERY_DISABLE=1
+
 output="$({
   printf '\n\n\n\n\n\n\n\n\n\n6\n'
-  for _ in $(seq 1 12); do echo; done
+  for _ in $(seq 1 14); do echo; done
 } | bash "$WIZARD" --mode config-only --dry-run 2>&1)"
 
 grep -qi 'Added mqtt because zigbee2mqtt depends on it' <<<"$output"
 grep -q 'services: mqtt zigbee2mqtt' <<<"$output"
+# Every selected service gets the shared image menu, even offline.
+grep -q -- '--- MQTT (Mosquitto) container image ---' <<<"$output" || {
+  echo "The MQTT image menu must be shown for a selected service." >&2
+  exit 1
+}
+grep -q -- '--- Zigbee2MQTT container image ---' <<<"$output" || {
+  echo "The Zigbee2MQTT image menu must be shown for a selected service." >&2
+  exit 1
+}
 
 # --- zero-service selection: explicit 'none' is a valid choice ---------------
 output="$(printf '\n\n\n\n\n\n\n\n\n\nnone\n' |
@@ -60,7 +73,7 @@ grep -q 'services: (none)' <<<"$output" || {
 
 if conflict_output="$({
   printf '\n\n\n\n\n\n\n\n\n\n1 7\n'
-  for _ in $(seq 1 6); do echo; done
+  for _ in $(seq 1 7); do echo; done
   echo 1883
 } | bash "$WIZARD" --mode config-only --dry-run 2>&1)"; then
   echo "Expected a selected-service port conflict to fail." >&2
@@ -115,64 +128,51 @@ ask_choice CHOICE "Menu numeric" "alpha" alpha beta >/dev/null <<< "2"
 ask_choice CHOICE "Menu custom" "alpha" alpha beta >/dev/null <<< "gamma"
 [ "$CHOICE" = "gamma" ] || { echo "ask_choice must accept a custom value." >&2; exit 1; }
 
-# --- OTBR provisioning helpers (pure functions, no network) ---
+# --- shared image selection through the OTBR service (release tags mocked,
+# --- no network; full provider coverage lives in test-image-resolver.sh and
+# --- test-image-advisories.sh) ---
+# shellcheck disable=SC1091
+. "$REPO_ROOT/services/registry.sh"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/lib/images.sh"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/services/otbr/provision.sh"
+unset LISA_IMAGE_QUERY_DISABLE
 
-tags_fixture='{"results":[{"name":"latest"},{"name":"sha-69f03f0"},{"name":"v2025.12.1"},{"name":"v2026.07.0"},{"name":"main"}]}'
-tag="$(printf '%s' "$tags_fixture" | otbr_latest_release_tag)"
-[ "$tag" = "v2026.07.0" ] || { echo "Expected newest release tag v2026.07.0, got: $tag" >&2; exit 1; }
-
-if printf '%s' '{"results":[{"name":"latest"},{"name":"main"},{"name":"sha-abc1234"}]}' |
-  otbr_latest_release_tag | grep -q .; then
-  echo "Expected no release tag from floating-only tag lists." >&2
-  exit 1
-fi
-
-if ! otbr_image_is_floating "openthread/border-router:latest"; then
-  echo "Expected openthread/border-router:latest to be floating." >&2
-  exit 1
-fi
-if otbr_image_is_floating "openthread/border-router:v2026.07.0"; then
-  echo "Expected a release tag to not be floating." >&2
-  exit 1
-fi
-if otbr_image_is_floating "openthread/border-router@sha256:1111111111111111111111111111111111111111111111111111111111111111"; then
-  echo "Expected a pinned digest to not be floating." >&2
-  exit 1
-fi
-if otbr_image_is_floating "registry.local/otbr:latest"; then
-  echo "Expected a custom registry image to be left untouched." >&2
-  exit 1
-fi
-
-# --- OTBR image selection menu (release tags mocked, no network) ---
-otbr_query_release_tags() {
+lisa_image_query_release_tags() {
   printf 'v2026.07.1\nv2026.06.0\nv2026.05.2\n'
 }
 OTBR_IMAGE="openthread/border-router:latest"
-menu_output="$(configure_otbr_image <<< "" 2>&1)"
+menu_output="$(lisa_configure_service_image otbr <<< "" 2>&1)"
 grep -q '2) openthread/border-router:v2026.06.0' <<<"$menu_output" || {
   echo "OTBR image menu must list the available releases." >&2
   exit 1
 }
 OTBR_IMAGE="openthread/border-router:latest"
-configure_otbr_image <<< "" >/dev/null 2>&1
+lisa_configure_service_image otbr <<< "" >/dev/null 2>&1
 [ "$OTBR_IMAGE" = "openthread/border-router:v2026.07.1" ] || {
-  echo "OTBR image menu default must stay the newest release, got: $OTBR_IMAGE" >&2
+  echo "With a floating current image, the newest release must be the default, got: $OTBR_IMAGE" >&2
   exit 1
 }
 OTBR_IMAGE="openthread/border-router:latest"
-configure_otbr_image <<< "3" >/dev/null 2>&1
+lisa_configure_service_image otbr <<< "3" >/dev/null 2>&1
 [ "$OTBR_IMAGE" = "openthread/border-router:v2026.05.2" ] || {
   echo "OTBR image menu must honor a numbered selection, got: $OTBR_IMAGE" >&2
   exit 1
 }
-# A pinned release stays untouched and is offered as the plain default.
+# A pinned release stays the default, and the release menu is STILL shown.
 OTBR_IMAGE="openthread/border-router:v2026.04.0"
-configure_otbr_image <<< "" >/dev/null 2>&1
+menu_output="$(lisa_configure_service_image otbr <<< "" 2>&1)"
+grep -q '1) openthread/border-router:v2026.07.1' <<<"$menu_output" || {
+  echo "A tagged current image must not suppress the release menu." >&2
+  exit 1
+}
+grep -qE '[0-9]+\) openthread/border-router:v2026.04.0 \[current\]' <<<"$menu_output" || {
+  echo "The tagged current image must be listed and marked [current]." >&2
+  exit 1
+}
+OTBR_IMAGE="openthread/border-router:v2026.04.0"
+lisa_configure_service_image otbr <<< "" >/dev/null 2>&1
 [ "$OTBR_IMAGE" = "openthread/border-router:v2026.04.0" ] || {
   echo "A pinned OTBR release must remain the default, got: $OTBR_IMAGE" >&2
   exit 1

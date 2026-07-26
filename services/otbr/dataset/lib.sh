@@ -59,6 +59,34 @@ otbr_dataset_file_checksum_ok() {
   return 0
 }
 
+# Decide what deploy does when OTBR has NO active dataset and NO pending
+# one-shot action, from the persistent recovery policy. Pure (unit-tested).
+# Args: <auto_restore 0|1> <auto_create 0|1> <latest_backup_exists 0|1>
+# Prints exactly one action token:
+#   restore-latest                  restore the latest backup
+#   create-network                  create a brand-new Thread network
+#   fail-backup-restore-disabled    a latest backup exists but restoration is
+#                                   disabled; NEVER silently create a
+#                                   replacement network over it
+#   fail-no-backup                  nothing to restore and creation is not
+#                                   allowed by the policy
+otbr_empty_dataset_action() {
+  local auto_restore="$1" auto_create="$2" latest_exists="$3"
+  if [ "$latest_exists" = "1" ]; then
+    if [ "$auto_restore" = "1" ]; then
+      printf 'restore-latest\n'
+    else
+      printf 'fail-backup-restore-disabled\n'
+    fi
+    return 0
+  fi
+  if [ "$auto_create" = "1" ]; then
+    printf 'create-network\n'
+  else
+    printf 'fail-no-backup\n'
+  fi
+}
+
 # True when the lisa-otbr container is currently running.
 otbr_container_is_running() {
   command -v docker >/dev/null 2>&1 || return 1

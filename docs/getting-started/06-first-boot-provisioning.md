@@ -24,6 +24,17 @@ mode-specific options.
 | Restore from path | Use a selected archive or mounted NAS/local directory |
 | Configure only | Write `.env` without changing the host or starting services |
 
+Fresh setup always runs the COMPLETE first-time wizard for every selected
+service. An existing `.env` is loaded first (after the template), but its
+values only prefill the prompts and mark the current/default choices: they
+never suppress a wizard step, skip a service section, bypass image version
+discovery, or get accepted without a prompt. The wizard flow is determined
+by the selected mode and services alone, so every inherited value can be
+reviewed and replaced. Fresh setup never deletes runtime data or backups;
+destructive data removal stays with `lisa-edge reset` and the service
+lifecycle commands. The pre-existing `.env` is preserved as a
+`.env.before-wizard-*` copy before the new configuration is written.
+
 Interactive selection:
 
 ```bash
@@ -94,14 +105,46 @@ Global settings include:
 - administrator account; and
 - whether temporary passwordless sudo may remain.
 
-Each selected service then runs its own configuration prompts. Zigbee2MQTT
-automatically adds MQTT.
+Each selected service then runs its own configuration prompts followed by
+the shared image-version selection. Zigbee2MQTT automatically adds MQTT.
+Matter and OTBR additionally separate a **one-shot data action for the next
+deploy** (staged restore/reset/new-network pending markers) from the
+**persistent recovery policy** for later deploys, and the final summary
+shows both. Before anything is written, the wizard prints a setup summary:
+mode, selected services, selected images with advisory annotations, the
+Matter/OTBR one-shot actions and future policies, and any destructive
+consequence that needs attention.
 
 Review current keys with:
 
 ```bash
 ./lisa-edge service list
 ```
+
+## Image version selection
+
+Every selected service gets the same numbered image menu (also used by
+`sudo ./lisa-edge service add <service-key>`). It offers:
+
+- recent RELEASE tags discovered from the service's default repository
+  (Docker Hub or GHCR; bounded, timeout-limited requests; dev/nightly/alpha
+  tags are filtered out);
+- the current configured image, marked `[current]`;
+- the `.env.template` default, marked `[template default]`;
+- images from the Git-managed advisory catalog
+  `services/image-advisories.tsv`, marked `[known-issue]` or `[blocked]`
+  with their note; and
+- a custom full reference (`repository[:tag]` or
+  `repository@sha256:digest`).
+
+Floating tags are marked `[floating]`. The menu is always shown - a tagged
+or digest-pinned current value stays the default choice but never replaces
+the menu. Selecting a `known-issue` image repeats the warning and requires
+explicit confirmation; a `blocked` image is refused wherever it appears
+(including custom input). When the host is offline or the registry is
+unreachable, discovery is skipped with a warning and the menu still renders
+the local choices - the wizard never fails merely because tag discovery is
+unavailable.
 
 ## Images and administrator access
 

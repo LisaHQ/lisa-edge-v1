@@ -57,6 +57,39 @@ ask_choice() {
   printf -v "$variable" '%s' "$value"
 }
 
+# Strict numbered menu for a bounded enumeration: only a listed number (or
+# Enter for the default) is accepted; free-form values are rejected and
+# re-prompted. The selected option TEXT lands in the variable and the
+# selected 1-based number in ASK_MENU_INDEX. On end-of-input without an
+# acceptable answer the wizard fails with guidance instead of hanging.
+ask_menu() {
+  local variable="$1"
+  local label="$2"
+  local default_index="$3"
+  shift 3
+  local options=("$@")
+  local option index value rc
+
+  echo "$label:"
+  index=1
+  for option in "${options[@]}"; do
+    printf '  %d) %s\n' "$index" "$option"
+    index=$((index + 1))
+  done
+  while :; do
+    rc=0
+    read -r -p "Select a number [$default_index]: " value || rc=1
+    value="${value:-$default_index}"
+    if [[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -ge 1 ] && [ "$value" -le "${#options[@]}" ]; then
+      ASK_MENU_INDEX="$value"
+      printf -v "$variable" '%s' "${options[$((value - 1))]}"
+      return 0
+    fi
+    [ "$rc" -eq 1 ] && die "A numbered selection between 1 and ${#options[@]} is required for: $label"
+    echo "Select a number between 1 and ${#options[@]}." >&2
+  done
+}
+
 ask_secret() {
   local variable="$1"
   local label="$2"

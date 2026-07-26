@@ -6,8 +6,10 @@ matter_container_running() {
   grep -qx lisa-matter <<<"$(docker ps --format '{{.Names}}' 2>/dev/null || true)"
 }
 
-# Detect existing Matter data backups and stage the operator's choice as a
-# one-shot pending marker consumed by data/init-or-restore.sh on deploy.
+# ONE-SHOT action for the NEXT deploy: detect existing Matter data backups
+# and stage the operator's choice as a pending marker consumed exactly once
+# by data/init-or-restore.sh. This is deliberately separate from the
+# persistent recovery policy configured afterwards.
 configure_matter_data_source() {
   local search_root="" selection="" answer choice item index
   local backups=() default_choice matter_running=0
@@ -18,9 +20,12 @@ configure_matter_data_source() {
   pending_data="$MATTER_DATA_BACKUP_DIR/$MATTER_PENDING_DATA_FILE_NAME"
   pending_reset="$MATTER_DATA_BACKUP_DIR/$MATTER_PENDING_RESET_FILE_NAME"
   matter_container_running && matter_running=1
+  MATTER_NEXT_DEPLOY_ACTION="none"
 
   echo
-  echo "--- Matter data detection ---"
+  echo "--- Matter data: one-shot action for the NEXT deploy ---"
+  info "This stages a single restore/reset action applied once by the next"
+  info "deploy. The persistent recovery policy is configured separately below."
   if [ -d "$MATTER_DATA_BACKUP_DIR" ]; then
     ask_choice search_root "Path to scan for Matter data backups" \
       "$MATTER_DATA_BACKUP_DIR" "$MATTER_DATA_BACKUP_DIR"
@@ -42,8 +47,8 @@ configure_matter_data_source() {
         printf '  %d) %s\n' "$index" "$item"
         index=$((index + 1))
       done
-      echo "  r) Reset the Matter fabric instead (re-commission every device)"
-      echo "  s) Skip (keep the current data behavior)"
+      echo "  r) Reset the Matter fabric on the next deploy (re-commission every device)"
+      echo "  s) No one-shot data action"
       # Default to the safe choice when a Matter server is already running.
       default_choice=1
       [ "$matter_running" -eq 1 ] && default_choice=s
@@ -72,6 +77,7 @@ configure_matter_data_source() {
   fi
 
   if [ -z "$selection" ]; then
+    info "No one-shot Matter data action."
     if [ "${DRY_RUN:-0}" -eq 0 ] &&
       { [ -e "$pending_data" ] || [ -e "$pending_reset" ]; }; then
       rm -f -- "$pending_data" "$pending_reset"
@@ -82,6 +88,12 @@ configure_matter_data_source() {
 
   if [ "$selection" != "reset" ] && ! matter_data_archive_is_valid "$selection"; then
     die "Selected Matter data archive is not a readable tar.gz with safe relative members: $selection"
+  fi
+
+  if [ "$selection" = "reset" ]; then
+    MATTER_NEXT_DEPLOY_ACTION="reset fabric"
+  else
+    MATTER_NEXT_DEPLOY_ACTION="restore data from $selection"
   fi
 
   if [ "${DRY_RUN:-0}" -eq 1 ]; then
@@ -178,7 +190,7 @@ configure_matter_bluetooth() {
 MATTER_IF_AUTO_LABEL="auto-detect (recommended)"
 
 configure_matter_network() {
-  local interfaces=() interface answer
+  local interfaces=() interface
   # shellcheck disable=SC1091
   . "$EDGE_REPO/lib/service-config.sh"
   info "127.0.0.1 keeps the WebSocket API host-local."
@@ -207,12 +219,9 @@ configure_matter_network() {
       MATTER_PRIMARY_INTERFACE="$choice"
     fi
   else
-    ask_yes_no answer "Pin Matter mDNS to a specific host interface" "no"
-    if [ "$answer" = "yes" ]; then
-      ask_value MATTER_PRIMARY_INTERFACE "Primary interface name" "${MATTER_PRIMARY_INTERFACE:-}"
-    else
-      MATTER_PRIMARY_INTERFACE=""
-    fi
+    ask_value MATTER_PRIMARY_INTERFACE \
+      "Matter mDNS primary interface (optional; Enter keeps auto-detect)" \
+      "${MATTER_PRIMARY_INTERFACE:-}"
   fi
   lisa_validate_matter_primary_interface "$MATTER_PRIMARY_INTERFACE" ||
     die "Invalid MATTER_PRIMARY_INTERFACE."
@@ -233,8 +242,39 @@ configure_matter_identity() {
   # (the legacy MATTER_THREAD_CREDENTIAL_ID variable is ignored).
 }
 
+# PERSISTENT recovery policy: what a LATER deploy does when it finds an
+# EMPTY Matter store and no staged one-shot action. Stored in
+# MATTER_AUTO_RESTORE_DATA. A staged one-shot reset removes the 'latest'
+# backup pointer before it completes, so this policy never resurrects a
+# fabric the operator just chose to reset.
+configure_matter_recovery_policy() {
+  local current_policy=1 choice
+  [ "${MATTER_AUTO_RESTORE_DATA:-1}" = "1" ] || current_policy=2
+  echo
+  echo "--- Future Matter recovery policy ---"
+  info "This policy is separate from the one-shot action above. It applies to"
+  info "LATER deploys that find an EMPTY Matter store and no staged action."
+  info "(A staged fabric reset removes the 'latest' backup pointer first, so"
+  info "it is never restored back by this policy.)"
+  ask_menu choice "Empty-store recovery policy" "$current_policy" \
+    "Restore the latest Matter backup when one exists (recommended)" \
+    "Never restore automatically; Matter starts with a fresh fabric"
+  # Looks unused here, but lisa-first-boot.sh writes it into .env via env_line().
+  # shellcheck disable=SC2034
+  [ "$ASK_MENU_INDEX" = "1" ] && MATTER_AUTO_RESTORE_DATA=1 || MATTER_AUTO_RESTORE_DATA=0
+}
+
+# Human-readable rendering of the stored Matter recovery policy (used by
+# the wizard summary).
+matter_recovery_policy_text() {
+  if [ "${MATTER_AUTO_RESTORE_DATA:-1}" = "1" ]; then
+    printf '%s\n' "restore latest backup when available"
+  else
+    printf '%s\n' "never restore automatically; start with a fresh fabric"
+  fi
+}
+
 configure_matter() {
-  local answer
   echo
   echo "--- Matter Server wizard ---"
   info "Matter Server (matterjs-server) uses host networking for mDNS commissioning and stores its fabric data under DATA_ROOT."
@@ -250,8 +290,5 @@ configure_matter() {
   # shellcheck disable=SC2034
   MATTER_DATA_LATEST="$MATTER_DATA_BACKUP_DIR/latest.matter-data.tar.gz"
   configure_matter_data_source
-  ask_yes_no answer "Automatically restore the latest Matter data backup when the store is empty" "yes"
-  # MATTER_AUTO_RESTORE_DATA looks unused here, but lisa-first-boot.sh writes it into .env via env_line().
-  # shellcheck disable=SC2034
-  [ "$answer" = "yes" ] && MATTER_AUTO_RESTORE_DATA=1 || MATTER_AUTO_RESTORE_DATA=0
+  configure_matter_recovery_policy
 }

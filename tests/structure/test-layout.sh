@@ -45,6 +45,7 @@ canonical_files=(
   services/registry.sh
   services/list.sh
   services/lifecycle.sh
+  services/image-advisories.tsv
   lib/env-file.sh
   ops/deploy/compose.yml
   ops/deploy/deploy.sh

@@ -91,6 +91,8 @@ load_libs() {
   . "$EDGE_REPO/lib/compose.sh"
   # shellcheck disable=SC1091
   . "$EDGE_REPO/lib/env-file.sh"
+  # shellcheck disable=SC1091
+  . "$EDGE_REPO/lib/images.sh"
 }
 
 # True when this host runs systemd (same rule as the health check).
@@ -387,6 +389,8 @@ cmd_add() {
   done
 
   # Configure ONLY the newly added services (never the complete wizard).
+  # Each new service runs its wizard section followed by the same shared
+  # image-version selection used by the full setup wizard.
   # shellcheck disable=SC1091
   . "$EDGE_REPO/install/provisioning/lib/ui.sh"
   local service wizard configure_function
@@ -399,6 +403,7 @@ cmd_add() {
     declare -F "$configure_function" >/dev/null ||
       die "missing provisioning function for $service: $configure_function"
     "$configure_function"
+    lisa_configure_service_image "$service"
   done
 
   # Host preparation needed by the new services (idempotent phases only).

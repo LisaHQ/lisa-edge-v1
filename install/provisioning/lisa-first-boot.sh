@@ -224,6 +224,8 @@ review_image_references() {
   echo
   echo "--- Selected container images ---"
   lisa_validate_selected_images || die "Container image policy validation failed."
+  lisa_reject_blocked_selected_images ||
+    die "A selected image is blocked by services/image-advisories.tsv. Select another image."
   lisa_print_selected_images
   if [ "$RESTORED_FROM_BACKUP" -eq 1 ]; then
     ask_yes_no confirmed "Trust and use the container image references restored from backup" "no"
@@ -231,6 +233,11 @@ review_image_references() {
   fi
 }
 
+# Every selected service runs its complete wizard section followed by the
+# shared image-version selection. The flow depends only on the setup mode
+# and the selected services: existing .env values prefill defaults and mark
+# the current choice, but never suppress a step, skip remote discovery, or
+# replace a numbered menu with a free-form prompt.
 run_service_wizards() {
   local service configure_function
   for service in "${SERVICE_IDS[@]}"; do
@@ -238,7 +245,45 @@ run_service_wizards() {
     configure_function="$(lisa_service_configure_function "$service")"
     declare -F "$configure_function" >/dev/null || die "Missing provisioning function for $service: $configure_function"
     "$configure_function"
+    lisa_configure_service_image "$service"
   done
+}
+
+# Final wizard summary shown before the configuration is written and the
+# apply confirmation is asked. Separates the staged one-shot deploy actions
+# from the persistent recovery policies and calls out every destructive
+# consequence that needs attention.
+print_setup_summary() {
+  echo
+  echo "============================================================"
+  echo " Setup summary"
+  echo "============================================================"
+  echo "  Setup mode:        $MODE"
+  echo "  Hostname:          $LISA_EDGE_HOSTNAME"
+  echo "  Data root:         $DATA_ROOT"
+  echo "  Backup dest:       $BACKUP_DEST"
+  echo "  Selected services: ${LISA_COMPOSE_SERVICES:-(none)}"
+  echo "  Selected images:"
+  lisa_print_selected_images
+  if contains_word "$LISA_COMPOSE_SERVICES" matter; then
+    echo "  Next Matter deploy action:  ${MATTER_NEXT_DEPLOY_ACTION:-none}"
+    echo "  Future empty-store policy:  $(matter_recovery_policy_text)"
+  fi
+  if contains_word "$LISA_COMPOSE_SERVICES" otbr; then
+    echo "  Next OTBR deploy action:    ${OTBR_NEXT_DEPLOY_ACTION:-none}"
+    echo "  Future empty-dataset policy: $(otbr_recovery_policy_text)"
+  fi
+  case "${OTBR_NEXT_DEPLOY_ACTION:-none}" in
+    *"NEW Thread network"*)
+      warn "ATTENTION: the staged new Thread network disconnects devices paired to the previous network."
+      ;;
+  esac
+  case "${MATTER_NEXT_DEPLOY_ACTION:-none}" in
+    "reset fabric")
+      warn "ATTENTION: the staged Matter fabric reset requires re-commissioning every Matter device."
+      ;;
+  esac
+  echo "============================================================"
 }
 
 validate_service_endpoints() {
@@ -418,7 +463,7 @@ write_environment() {
     env_line MQTT_IMAGE "${MQTT_IMAGE:-eclipse-mosquitto:2}"
     env_line UPTIME_KUMA_IMAGE "${UPTIME_KUMA_IMAGE:-louislam/uptime-kuma:1}"
     env_line HOME_ASSISTANT_IMAGE "${HOME_ASSISTANT_IMAGE:-ghcr.io/home-assistant/home-assistant:stable}"
-    env_line MATTER_SERVER_IMAGE "${MATTER_SERVER_IMAGE:-ghcr.io/matter-js/matterjs-server:stable}"
+    env_line MATTER_SERVER_IMAGE "${MATTER_SERVER_IMAGE:-ghcr.io/matter-js/matterjs-server:1.3.0}"
     env_line OTBR_IMAGE "${OTBR_IMAGE:-openthread/border-router:latest}"
     env_line ZIGBEE2MQTT_IMAGE "${ZIGBEE2MQTT_IMAGE:-koenkk/zigbee2mqtt:latest}"
     env_line NODE_RED_IMAGE "${NODE_RED_IMAGE:-nodered/node-red:latest}"
@@ -568,6 +613,7 @@ main() {
   run_service_wizards
   validate_service_endpoints
   review_image_references
+  print_setup_summary
   write_environment
   apply_provisioning
 

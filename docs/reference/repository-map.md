@@ -120,8 +120,9 @@ For task-oriented guides, start at [docs/README.md](../README.md).
 
 | Path | Purpose |
 | --- | --- |
-| `registry.sh` | The single service catalog: selection keys, aliases, directory mapping, dependencies (for example zigbee2mqtt → mqtt). Add a service here first. |
+| `registry.sh` | The single service catalog: selection keys, aliases, directory mapping, dependencies (for example zigbee2mqtt → mqtt), image variables/repositories/release-tag filters. Add a service here first. |
 | `list.sh` | Implements `lisa-edge service list`. |
+| `image-advisories.tsv` | Git-managed image advisory catalog (`known-issue`/`blocked` records shown by the image-selection menu). |
 | `<service>/compose.yml` | The service's Compose fragment, layered onto `ops/deploy/compose.yml` when selected. |
 | `<service>/provision.sh` | The service's section of the setup wizard (its `.env` questions and defaults). |
 | `<service>/prepare.sh` | Host-side preparation when needed (for example MQTT password file). |
@@ -169,7 +170,7 @@ Matter/Thread configuration before deploy.
 | Path | Purpose |
 | --- | --- |
 | `compose.sh` | Service selection resolution (`LISA_COMPOSE_SERVICES`), dependency validation, Compose file-list construction. |
-| `images.sh` | Image pinning and image-policy helpers. |
+| `images.sh` | Image pinning/policy helpers, the Git-managed image advisory catalog (`services/image-advisories.tsv`), remote release-tag discovery (Docker Hub/GHCR, bounded), and the shared interactive image-selection menu. |
 | `paths.sh` | Persistent-path safety: traversal/symlink validation, mounted-destination verification. |
 
 ## tools/ — developer and build utilities

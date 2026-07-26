@@ -102,6 +102,41 @@ lisa_service_image_variable() {
   esac
 }
 
+# Default (upstream) image repository for the service, without a tag. Used by
+# the shared image-selection layer (lib/images.sh) for remote release-tag
+# discovery. Keep in sync with the .env.template defaults.
+lisa_service_image_repository() {
+  case "$1" in
+    mqtt) printf '%s\n' eclipse-mosquitto ;;
+    uptime-kuma) printf '%s\n' louislam/uptime-kuma ;;
+    ha) printf '%s\n' ghcr.io/home-assistant/home-assistant ;;
+    matter) printf '%s\n' ghcr.io/matter-js/matterjs-server ;;
+    otbr) printf '%s\n' openthread/border-router ;;
+    zigbee2mqtt) printf '%s\n' koenkk/zigbee2mqtt ;;
+    node-red) printf '%s\n' nodered/node-red ;;
+    vpn-tailscale) printf '%s\n' tailscale/tailscale ;;
+    *) return 1 ;;
+  esac
+}
+
+# Anchored extended regex matching the service's RELEASE tags. Discovery
+# offers only tags matching this filter, which deliberately excludes
+# floating (latest/main/stable), dev, nightly, alpha, and variant tags; a
+# custom reference can always be typed in instead.
+lisa_service_image_tag_filter() {
+  case "$1" in
+    mqtt) printf '%s\n' '^[0-9]+(\.[0-9]+){1,2}$' ;;
+    uptime-kuma) printf '%s\n' '^[0-9]+(\.[0-9]+){1,2}$' ;;
+    ha) printf '%s\n' '^[0-9]{4}\.[0-9]+\.[0-9]+$' ;;
+    matter) printf '%s\n' '^[0-9]+\.[0-9]+\.[0-9]+$' ;;
+    otbr) printf '%s\n' '^v[0-9]{4}\.[0-9]{2}\.[0-9]+$' ;;
+    zigbee2mqtt) printf '%s\n' '^[0-9]+\.[0-9]+\.[0-9]+$' ;;
+    node-red) printf '%s\n' '^[0-9]+\.[0-9]+\.[0-9]+$' ;;
+    vpn-tailscale) printf '%s\n' '^v[0-9]+\.[0-9]+\.[0-9]+$' ;;
+    *) return 1 ;;
+  esac
+}
+
 lisa_service_is_default() {
   case " $LISA_DEFAULT_SERVICES " in
     *" $1 "*) return 0 ;;

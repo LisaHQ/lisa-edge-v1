@@ -60,9 +60,13 @@ Thread devices reconnect and Matter automations work before declaring recovery
 complete.
 
 Keep `OTBR_AUTO_RESTORE_DATASET=1` and `OTBR_AUTO_CREATE_NETWORK=0` in
-production. Without a dataset backup, create a new Thread network with
-`sudo ./lisa-edge otbr network create` (named `THREAD_NETWORK_NAME`); every
-Thread device must then be factory-reset and re-commissioned.
+production (the setup wizard offers the four supported policy combinations
+as one "Future OTBR recovery policy" menu). Deploy never creates a network
+automatically while a latest backup exists: when restoration is disabled but
+a backup is present, it fails closed and points at the backup instead of
+replacing the network. Without a dataset backup, create a new Thread network
+with `sudo ./lisa-edge otbr network create` (named `THREAD_NETWORK_NAME`);
+every Thread device must then be factory-reset and re-commissioned.
 
 ## Development reset
 

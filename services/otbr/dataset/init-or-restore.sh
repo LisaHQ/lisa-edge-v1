@@ -23,18 +23,32 @@ LATEST="${OTBR_DATASET_LATEST:-/srv/lisa-edge/backups/otbr/latest.dataset.hex}"
 # shellcheck disable=SC1091
 . "$EDGE_REPO/services/otbr/dataset/lib.sh"
 BACKUP_DIR="${OTBR_DATASET_BACKUP_DIR:-/srv/lisa-edge/backups/otbr}"
-lisa_validate_persistent_path OTBR_DATASET_BACKUP_DIR "$BACKUP_DIR"
+# Test seam (mirrors the repository's LISA_EDGE_TESTING contract): a backup
+# directory below /tmp is accepted only in testing mode; real hosts always
+# validate the persistent path.
+SKIP_PATH_VALIDATION=0
+if [ "${LISA_EDGE_TESTING:-0}" = "1" ]; then
+  case "$BACKUP_DIR" in /tmp/*) SKIP_PATH_VALIDATION=1 ;; esac
+fi
+if [ "$SKIP_PATH_VALIDATION" -ne 1 ]; then
+  lisa_validate_persistent_path OTBR_DATASET_BACKUP_DIR "$BACKUP_DIR"
+fi
 PENDING_DATASET="$BACKUP_DIR/$OTBR_PENDING_DATASET_FILE_NAME"
 PENDING_NEW_NETWORK="$BACKUP_DIR/$OTBR_PENDING_NEW_NETWORK_FILE_NAME"
 
+# Attempt counts and delays are env-overridable ONLY for tests; the
+# defaults are the production behavior.
+WAIT_ATTEMPTS="${OTBR_DATASET_WAIT_ATTEMPTS:-60}"
+WAIT_DELAY="${OTBR_DATASET_WAIT_DELAY:-2}"
+
 echo "Waiting for OTBR container..."
 CONTAINER_RUNNING=0
-for _ in $(seq 1 60); do
+for _ in $(seq 1 "$WAIT_ATTEMPTS"); do
   if otbr_container_is_running; then
     CONTAINER_RUNNING=1
     break
   fi
-  sleep 2
+  sleep "$WAIT_DELAY"
 done
 if [ "$CONTAINER_RUNNING" -ne 1 ]; then
   echo "ERROR: lisa-otbr container is not running." >&2
@@ -47,7 +61,7 @@ fi
 # reports "connect session failed" until the agent socket exists, so gate all
 # dataset decisions on agent readiness instead of container state.
 echo "Waiting for otbr-agent to accept commands..."
-if ! otbr_wait_for_agent 60 2; then
+if ! otbr_wait_for_agent "$WAIT_ATTEMPTS" "$WAIT_DELAY"; then
   {
     echo "ERROR: otbr-agent did not become ready; ot-ctl cannot connect to its socket."
     echo "The lisa-otbr container is running but the OpenThread agent has not started."
@@ -65,7 +79,7 @@ fi
 
 DATASET_STATUS=""
 RC=0
-otbr_classify_active_dataset_retry 30 2 || RC=$?
+otbr_classify_active_dataset_retry "${OTBR_DATASET_CLASSIFY_ATTEMPTS:-30}" "$WAIT_DELAY" || RC=$?
 case "$RC" in
   0) DATASET_STATUS=present ;;
   1) DATASET_STATUS=absent ;;
@@ -110,21 +124,50 @@ if [ "$DATASET_STATUS" = "present" ]; then
   exit 0
 fi
 
-if [ "${OTBR_AUTO_RESTORE_DATASET:-1}" = "1" ] && [ -f "$LATEST" ]; then
-  echo "No active dataset found. Restoring latest dataset."
-  OTBR_DATASET_RESTORE_ASSUME_YES=1 \
-    "$EDGE_REPO/services/otbr/dataset/restore.sh" "$LATEST"
-  exit 0
-fi
-
-if [ "${OTBR_AUTO_CREATE_NETWORK:-0}" = "1" ]; then
-  echo "No dataset found. Creating a new Thread network."
-  OTBR_NETWORK_CREATE_ASSUME_YES=1 \
-    "$EDGE_REPO/services/otbr/network-create.sh"
-  exit 0
-fi
-
-echo "ERROR: No active dataset and no backup found."
-echo "Refusing to auto-create a new Thread network unless OTBR_AUTO_CREATE_NETWORK=1."
-echo "Create one explicitly with: sudo ./lisa-edge otbr network create"
-exit 1
+# Empty dataset, no pending one-shot action: apply the persistent recovery
+# policy. A new network is only ever created automatically when NO latest
+# backup exists; a backup with restoration disabled fails closed instead of
+# silently replacing the Thread network it belongs to.
+LATEST_EXISTS=0
+[ -f "$LATEST" ] && LATEST_EXISTS=1
+ACTION="$(otbr_empty_dataset_action \
+  "${OTBR_AUTO_RESTORE_DATASET:-1}" "${OTBR_AUTO_CREATE_NETWORK:-0}" "$LATEST_EXISTS")"
+case "$ACTION" in
+  restore-latest)
+    echo "No active dataset found. Restoring latest dataset."
+    OTBR_DATASET_RESTORE_ASSUME_YES=1 \
+      "$EDGE_REPO/services/otbr/dataset/restore.sh" "$LATEST"
+    exit 0
+    ;;
+  create-network)
+    echo "No active dataset and no latest backup exist. Creating a new Thread network (allowed by policy)."
+    OTBR_NETWORK_CREATE_ASSUME_YES=1 \
+      "$EDGE_REPO/services/otbr/network-create.sh"
+    exit 0
+    ;;
+  fail-backup-restore-disabled)
+    {
+      echo "ERROR: No active dataset, but a latest Thread dataset backup exists:"
+      echo "  $LATEST"
+      echo "Automatic restoration is disabled (OTBR_AUTO_RESTORE_DATASET=0), and a"
+      echo "replacement Thread network is NEVER created while a backup exists:"
+      echo "it would orphan every device paired to the backed-up network."
+      echo "Choose one:"
+      echo "  - restore the backup:  sudo ./lisa-edge otbr dataset restore '$LATEST'"
+      echo "  - enable restoration:  sudo ./lisa-edge setup  (Future OTBR recovery policy)"
+      echo "  - replace the network deliberately:  sudo ./lisa-edge otbr network create"
+    } >&2
+    exit 1
+    ;;
+  fail-no-backup|*)
+    {
+      echo "ERROR: No active dataset and no latest backup found."
+      echo "The configured recovery policy does not allow creating a network automatically."
+      echo "Choose one:"
+      echo "  - create one explicitly:  sudo ./lisa-edge otbr network create"
+      echo "  - restore a specific backup:  sudo ./lisa-edge otbr dataset restore <file>"
+      echo "  - change the policy:  sudo ./lisa-edge setup  (Future OTBR recovery policy)"
+    } >&2
+    exit 1
+    ;;
+esac

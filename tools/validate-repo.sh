@@ -115,8 +115,11 @@ bash "$REPO_ROOT/tests/unit/test-otbr-cli.sh"
 echo "Checking OTBR network creation flow..."
 bash "$REPO_ROOT/tests/unit/test-otbr-network-create.sh"
 
-echo "Checking OTBR image resolver..."
-bash "$REPO_ROOT/tests/unit/test-otbr-image-resolver.sh"
+echo "Checking the shared image resolver..."
+bash "$REPO_ROOT/tests/unit/test-image-resolver.sh"
+
+echo "Checking the image advisory catalog and selection..."
+bash "$REPO_ROOT/tests/unit/test-image-advisories.sh"
 
 echo "Checking Matter WebSocket client..."
 bash "$REPO_ROOT/tests/unit/test-matter-ws-client.sh"
@@ -161,8 +164,14 @@ bash "$REPO_ROOT/tests/unit/test-reset-cli.sh"
 echo "Checking provisioning wizard..."
 bash "$REPO_ROOT/tests/unit/test-provisioning-wizard.sh"
 
+echo "Checking fresh setup semantics..."
+bash "$REPO_ROOT/tests/unit/test-fresh-setup.sh"
+
 echo "Checking OTBR dataset selection helpers..."
 bash "$REPO_ROOT/tests/unit/test-otbr-dataset-selection.sh"
+
+echo "Checking the OTBR recovery policy matrix..."
+bash "$REPO_ROOT/tests/unit/test-otbr-policy-matrix.sh"
 
 echo "Checking Matter data selection helpers..."
 bash "$REPO_ROOT/tests/unit/test-matter-data-selection.sh"

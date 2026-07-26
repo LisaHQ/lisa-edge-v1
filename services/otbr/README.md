@@ -22,9 +22,13 @@ under `dataset/` back it up, restore it or initialize OTBR. The wizard detects
 existing dataset backups (default directory or a custom path), and can stage a
 selected backup or a new-network request as a one-shot pending marker that the
 next deploy applies; a running dataset is backed up first, optionally with a
-filename description. Production should keep `OTBR_AUTO_RESTORE_DATASET=1` and
-`OTBR_AUTO_CREATE_NETWORK=0`. The units in `systemd/` schedule dataset backups
-when OTBR is selected.
+filename description (one prompt, Enter skips). The separate persistent
+recovery policy (`OTBR_AUTO_RESTORE_DATASET`/`OTBR_AUTO_CREATE_NETWORK`,
+offered as one wizard menu) governs later deploys that find no dataset and no
+pending action; a new network is only ever created automatically when no
+latest backup exists, and production should keep `1`/`0` (restore, never
+create). The units in `systemd/` schedule dataset backups when OTBR is
+selected.
 
 Owned files: `compose.yml`, `provision.sh`, `status.sh`, `network-create.sh`, `dataset/` and `systemd/`. See the
 [service reference](../../docs/services/otbr.md) and

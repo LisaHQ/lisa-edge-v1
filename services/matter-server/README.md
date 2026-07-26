@@ -42,8 +42,12 @@ Data tools under `data/` back the store up, restore it, reset the fabric or
 initialize it on deploy, mirroring the OTBR dataset protection. The wizard
 detects existing Matter data backups (default directory or a custom path) and
 can stage a selected backup or a fabric reset as a one-shot pending marker
-that the next deploy applies; deploy backs up the active store first.
-Production should keep `MATTER_AUTO_RESTORE_DATA=1`. The units in `systemd/`
+that the next deploy applies; deploy backs up the active store first. The
+separate persistent empty-store policy (`MATTER_AUTO_RESTORE_DATA`, offered
+as its own wizard menu) governs later deploys with no pending action; a
+staged reset removes the `latest` pointer first so the policy never
+resurrects a reset fabric. Production should keep
+`MATTER_AUTO_RESTORE_DATA=1`. The units in `systemd/`
 schedule daily data backups when Matter is selected; a scheduled backup stops
 `lisa-matter` for the few seconds the snapshot takes. The live store is also
 included in the standard `sudo ./lisa-edge backup` archive.

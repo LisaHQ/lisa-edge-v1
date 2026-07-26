@@ -27,9 +27,11 @@ Use `sudo ./lisa-edge setup` to select it. The wizard asks for
 `MATTER_SERVER_PORT` (passed to the server as its listen port and used by
 health checks), `MATTER_LISTEN_ADDRESS`, an optional
 `MATTER_PRIMARY_INTERFACE`, the Bluetooth adapter (detected from
-`/sys/class/bluetooth/`), the fabric label, the
-Matter data backup directory and restore policy, and can stage a data
-restore or fabric reset for the next service refresh. Add and verify:
+`/sys/class/bluetooth/`), the fabric label, the Matter data backup
+directory, the container image (a numbered menu of discovered release tags,
+the current value, the template default, and cataloged advisory images),
+an optional one-shot data restore or fabric reset for the NEXT deploy, and
+the separate persistent empty-store recovery policy. Add and verify:
 
 ```bash
 sudo ./lisa-edge service add matter
@@ -161,6 +163,13 @@ all encoded in `compose.yml`:
   explicitly against the upstream changelog and re-validate BLE on hardware
   before repinning.
 
+  Images with recorded problems are annotated by the Git-managed advisory
+  catalog `services/image-advisories.tsv`: the wizard's image menu marks
+  `1.3.1` as `known-issue` (BLE commissioning regression observed by LISA
+  Edge) and requires explicit confirmation before accepting it. This is a
+  LISA Edge test observation, not a universal upstream guarantee - the
+  image may work in deployments that never use BLE commissioning.
+
   Version policy status: `1.3.1` (2026-07-23) was evaluated and NOT adopted.
   Per the upstream changelog it only adds dashboard features and updates the
   embedded matter.js SDK to a newer 0.17.7 alpha; schema 12, named Thread
@@ -274,11 +283,25 @@ The live store is also included in the standard full-stack backup
 The Matter wizard detects existing data backups. It scans the configured
 backup directory (or a custom path you enter, such as a mounted USB or NAS
 directory) for `*.tar.gz` archives, lists them newest first, and lets you
-restore a selected backup, reset the fabric, or keep the current behavior.
+restore a selected backup, reset the fabric, or stage no one-shot action.
 The choice is staged as a one-shot `pending.matter-data.tar.gz` or
 `pending.reset` marker inside `MATTER_DATA_BACKUP_DIR` and applied exactly
 once by the next deploy; delete the marker to cancel before deploying. Deploy
 backs up the active store before applying any staged change.
+
+The wizard then asks separately for the **future Matter recovery policy**
+(`MATTER_AUTO_RESTORE_DATA`): what LATER deploys do when they find an empty
+store and no pending action - restore the latest backup when one exists
+(recommended), or never restore automatically so Matter starts a fresh
+fabric. A staged one-shot reset does not conflict with the restore policy:
+the reset hook removes the `latest` backup pointer before it completes, so
+the policy never resurrects the fabric that was just reset. The final wizard
+summary shows both, for example:
+
+```text
+Next Matter deploy action:  reset fabric
+Future empty-store policy:  restore latest backup when available
+```
 
 See the [Matter recovery runbook](../operations/service-recovery/matter.md)
 before hardware migration or disaster recovery.

@@ -15,6 +15,14 @@ reading internal files:
 Only implemented services belong here. Planned services are documented under
 `docs/planned/` until runnable code exists.
 
+`image-advisories.tsv` is the Git-managed image advisory catalog: one
+`service-key<TAB>image<TAB>status<TAB>note` record per image with a recorded
+problem (`known-issue` requires explicit confirmation in the image menu,
+`blocked` is refused). It is static and reviewed with code changes - there
+are no runtime commands to edit it - and it never lists "tested" or
+"recommended" images: recommended versions stay documented in
+`.env.template` and the service documentation.
+
 | Owner | Selection key | Default | Notes |
 |---|---|:---:|---|
 | [mqtt/](mqtt/README.md) | `mqtt` | Yes | Mosquitto messaging |

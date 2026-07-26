@@ -12,14 +12,16 @@ optional service with selection key `otbr`; the canonical owner is
 - The correct service-facing backbone interface
 
 Use `sudo ./lisa-edge setup` to select OTBR and configure
-`THREAD_RADIO_DEVICE`, `OTBR_BACKBONE_IF`, dataset storage and restore policy.
+`THREAD_RADIO_DEVICE`, `OTBR_BACKBONE_IF`, dataset storage and recovery policy.
 The wizard lists serial radios detected under `/dev/serial/by-id/` and active
 host interfaces (defaulting to the default-route interface) as selectable
-choices. When `OTBR_IMAGE` is left on a floating tag, the wizard also lists the
-newest `openthread/border-router` release tags (`vYYYY.MM.N`) from Docker
-Hub as a numbered menu, defaulting to the most recent release; if the host
-is offline it keeps the configured reference. Host bootstrap prepares Avahi and IPv6 forwarding when OTBR is
-selected.
+choices. The shared image-selection menu always lists the newest
+`openthread/border-router` release tags (`vYYYY.MM.N`) discovered from Docker
+Hub next to the current value and the template default - whatever the current
+tag looks like (floating, release tag, or digest). Offline, the menu still
+renders from those local choices; see
+[image version selection](../getting-started/06-first-boot-provisioning.md#image-version-selection).
+Host bootstrap prepares Avahi and IPv6 forwarding when OTBR is selected.
 
 Add and verify:
 
@@ -65,17 +67,29 @@ The Active Operational Dataset contains the Thread network key, PSKc, channel,
 PAN identifiers and mesh prefix. Treat it as a secret. Losing it can require
 factory-resetting or re-pairing Thread devices.
 
-Recommended production policy:
+The wizard separates two concepts explicitly:
 
-```env
-OTBR_AUTO_RESTORE_DATASET=1
-OTBR_AUTO_CREATE_NETWORK=0
-```
+- **One-shot action for the NEXT deploy** - restore a selected backup or
+  create a new network, staged as a pending marker and applied exactly once.
+- **Persistent recovery policy** - what LATER deploys do when they find no
+  active dataset and no pending action, offered as one numbered menu:
 
-Deploy automatically backs up an existing active dataset or restores
-`OTBR_DATASET_LATEST` when the container has no dataset. It refuses to create a
-new network unless explicitly allowed. Dataset snapshots live under
-`OTBR_DATASET_BACKUP_DIR`, defaulting to
+  1. Restore the latest dataset backup; fail when none exists
+     (`OTBR_AUTO_RESTORE_DATASET=1`, `OTBR_AUTO_CREATE_NETWORK=0`).
+     Recommended production default.
+  2. Restore the latest backup; create a NEW network only when no backup
+     exists (`1`/`1`).
+  3. Never restore; create a NEW network only when no backup exists
+     (`0`/`1`).
+  4. Never restore or create automatically; deploy fails with guidance
+     (`0`/`0`).
+
+A new network is only ever created automatically when NO latest backup
+exists. When a backup exists but restoration is disabled, deploy fails
+closed and explains that a backup exists instead of silently replacing the
+Thread network (which would orphan every device paired to it). Deploy
+automatically backs up an existing active dataset. Dataset snapshots live
+under `OTBR_DATASET_BACKUP_DIR`, defaulting to
 `/srv/lisa-edge/backups/otbr/`; the dataset timer is enabled automatically when
 OTBR is selected.
 
@@ -84,16 +98,18 @@ OTBR is selected.
 The OTBR wizard also detects existing dataset backups. It scans the configured
 backup directory (or a custom path you enter, such as a mounted USB or NAS
 directory) for `*.hex` dataset files, lists them newest first, and lets you
-restore a selected backup, create a new Thread network, or keep the current
-behavior. The choice is staged as a one-shot `pending.dataset.hex` or
+restore a selected backup, create a new Thread network, or stage no one-shot
+action. The choice is staged as a one-shot `pending.dataset.hex` or
 `pending.new-network` marker inside `OTBR_DATASET_BACKUP_DIR` and applied
-exactly once by the next deploy; delete the marker to cancel before deploying.
+exactly once by the next deploy; delete the marker to cancel before
+deploying. A staged one-shot action always takes precedence over the
+persistent recovery policy.
 
 If OTBR is already running, the wizard backs up the active dataset before the
-staged change is applied and offers to append a description to that backup's
-filename (spaces become `-`, characters unsafe in filenames become `_`, and the
-result is truncated to the filesystem name limit). Deploy backs the active
-dataset up again before applying any staged change.
+staged change is applied and asks for one optional backup description
+(Enter skips it; spaces become `-`, characters unsafe in filenames become
+`_`, and the result is truncated to the filesystem name limit). Deploy backs
+the active dataset up again before applying any staged change.
 
 Keep an encrypted copy outside the edge host. See the
 [OTBR recovery runbook](../operations/service-recovery/otbr.md) before hardware

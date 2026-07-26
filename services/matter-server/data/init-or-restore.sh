@@ -108,7 +108,7 @@ if matter_data_dir_has_state "$MATTER_DATA_DIR"; then
   # Protect the store before the container image changes underneath it. The
   # python-matter-server -> matterjs-server storage migration is one-way, so
   # this snapshot is the only way back to the pre-migration format.
-  CONFIGURED_IMAGE="${MATTER_SERVER_IMAGE:-ghcr.io/matter-js/matterjs-server:stable}"
+  CONFIGURED_IMAGE="${MATTER_SERVER_IMAGE:-ghcr.io/matter-js/matterjs-server:1.3.0}"
   RUNNING_IMAGE=""
   if command -v docker >/dev/null 2>&1; then
     RUNNING_IMAGE="$(docker inspect -f '{{.Config.Image}}' lisa-matter 2>/dev/null || true)"
