@@ -5,8 +5,14 @@
 # These globals look unused to IDE/shellcheck within this file, but every
 # consumer (lib/compose.sh, services/list.sh, the provisioning wizard, tests)
 # sources this file and reads them. Do not delete.
+#
+# LISA_DEFAULT_SERVICES is an initial fallback used ONLY when
+# LISA_COMPOSE_SERVICES is completely unset. It is never injected into an
+# existing explicit selection, and an explicitly EMPTY selection stays empty
+# (a host with zero selected services is a valid deployment). The default
+# set is intentionally empty: every service is an explicit operator choice.
 # shellcheck disable=SC2034
-LISA_DEFAULT_SERVICES="mqtt uptime-kuma"
+LISA_DEFAULT_SERVICES=""
 # shellcheck disable=SC2034
 LISA_ALL_SERVICES="mqtt uptime-kuma ha matter otbr zigbee2mqtt node-red vpn-tailscale"
 

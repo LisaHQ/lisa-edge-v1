@@ -57,13 +57,18 @@ ${C_SECTION}Runtime operations:${C_RESET}
   ${C_CMD}doctor matter-thread${C_RESET}          Focused Matter-over-Thread diagnostics
 
 ${C_SECTION}Service lifecycle:${C_RESET}
-  ${C_CMD}service list${C_RESET}                  List available service selection keys
-  ${C_CMD}service add${C_RESET} <service-key>     Select, configure, start, and verify one
+  ${C_CMD}service list${C_RESET}                  List selectable services with their
+                                installation and runtime status
+  ${C_CMD}service add${C_RESET} [service-key]     Select, configure, start, and verify one
                                 new service
-  ${C_CMD}service remove${C_RESET} <service-key>  Unselect one service and safely remove its
+                                ${C_DIM}(interactive menu when the key is omitted)${C_RESET}
+  ${C_CMD}service remove${C_RESET} [service-key]  Unselect one service and safely remove its
                                 active data (backups/images preserved)
-  ${C_CMD}service start${C_RESET} [service-key ...]  Start selected services (all when no key)
-  ${C_CMD}service stop${C_RESET} [service-key ...]   Stop selected services (all when no key)
+                                ${C_DIM}(interactive menu when the key is omitted)${C_RESET}
+  ${C_CMD}service start${C_RESET} [service-key ...]  Start selected services that are not
+                                running ${C_DIM}(interactive menu when no key is given)${C_RESET}
+  ${C_CMD}service stop${C_RESET} [service-key ...]   Stop running selected services
+                                ${C_DIM}(interactive menu when no key is given)${C_RESET}
 
 ${C_SECTION}Security:${C_RESET}
   ${C_CMD}security audit${C_RESET} [--strict]     Read-only security inspection

@@ -30,11 +30,11 @@ You should not need to know where an implementation script lives.
 | See runtime state | `sudo ./lisa-edge status` |
 | Run readiness checks (HEALTHY/DEGRADED/FAILED) | `sudo ./lisa-edge health` |
 | Fail on degradations too (monitoring) | `sudo ./lisa-edge health --strict` |
-| List selectable services | `./lisa-edge service list` |
-| Add, configure, start, and verify one service | `sudo ./lisa-edge service add <service-key>` |
-| Remove one service and its active data safely | `sudo ./lisa-edge service remove <service-key>` |
-| Start services without changing selection | `sudo ./lisa-edge service start [service-key ...]` |
-| Stop services without changing selection | `sudo ./lisa-edge service stop [service-key ...]` |
+| List selectable services with their status | `./lisa-edge service list` |
+| Add, configure, start, and verify one service (interactive menu when the key is omitted) | `sudo ./lisa-edge service add [service-key]` |
+| Remove one service and its active data safely (interactive menu when the key is omitted) | `sudo ./lisa-edge service remove [service-key]` |
+| Start selected services that are not running (interactive menu when no key is given) | `sudo ./lisa-edge service start [service-key ...]` |
+| Stop running selected services (interactive menu when no key is given) | `sudo ./lisa-edge service stop [service-key ...]` |
 | Inspect security posture (read-only) | `sudo ./lisa-edge security audit` |
 | Apply bounded, lockout-safe hardening | `sudo ./lisa-edge security harden` |
 | See OTBR / Thread state | `sudo ./lisa-edge otbr status` |

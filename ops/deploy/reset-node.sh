@@ -467,7 +467,12 @@ docker_project_cleanup() {
 # Plan output and confirmation
 # ---------------------------------------------------------------------------
 print_plan() {
-  local services_display="${SELECTED_SERVICES:-"(unknown - no usable .env; defaults would apply on the next provisioning)"}"
+  local services_display
+  if [ "$COMPOSE_READY" -eq 1 ]; then
+    services_display="${SELECTED_SERVICES:-(none)}"
+  else
+    services_display="(unknown - no usable .env)"
+  fi
 
   echo "==================================================================="
   echo " LISA Edge reset plan"

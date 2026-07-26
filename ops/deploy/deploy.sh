@@ -90,6 +90,19 @@ lisa_print_selected_images
 FILES=("${LISA_COMPOSE_FILES[@]}")
 UP_ARGS=(-d --remove-orphans)
 
+# Zero selected services is a valid deployment: 'compose up' would fail on a
+# project without services, so reconcile the intentionally empty deployment
+# by removing only this project's obsolete containers ('compose down
+# --remove-orphans' touches nothing outside the LISA Edge Compose project;
+# images, bind-mounted service data, and backups are preserved). The run
+# still finishes with the canonical health check.
+if [ -z "$(lisa_selected_services)" ]; then
+  echo "[LISA] No services selected; reconciling the intentionally empty deployment."
+  docker compose --env-file .env "${FILES[@]}" down --remove-orphans
+  "$EDGE_REPO/ops/deploy/healthcheck.sh"
+  exit 0
+fi
+
 if [ "$PULL_POLICY" = "always" ]; then
   echo "[LISA] Pulling selected service images..."
   docker compose --env-file .env "${FILES[@]}" pull

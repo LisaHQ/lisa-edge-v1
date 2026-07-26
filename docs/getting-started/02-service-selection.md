@@ -1,19 +1,40 @@
 # Service Selection
 
-Deploy only the services this node needs.
+Deploy only the services this node needs. No service is selected by
+default: every service is an explicit operator choice, and a host with
+zero selected services is a valid deployment (it stays configured and
+provisioned - Docker, security, backups, systemd runtime - without
+running an application service).
 
-List the current selection keys:
+List the current selection keys and their status:
 
 ```bash
 ./lisa-edge service list
 ```
 
+The `STATUS` column distinguishes `not-installed` (not selected),
+`installed` (selected, no container yet), `running`, `stopped`, `error`
+(dead/restarting/unhealthy), and `unknown` (Docker or the configuration
+is unreadable from this account). "Installed" always means selected in
+`LISA_COMPOSE_SERVICES`; a present container image alone never counts.
+
 Add or remove one service at a time with the service lifecycle:
 
 ```bash
-sudo ./lisa-edge service add <service-key>
-sudo ./lisa-edge service remove <service-key>
+sudo ./lisa-edge service add [service-key]
+sudo ./lisa-edge service remove [service-key]
 ```
+
+When the service key is omitted on a terminal, an interactive numbered
+menu offers the eligible services (`add` lists the not-yet-selected
+services; `remove` lists the selected ones with their runtime state, and
+options such as `--dry-run` still apply). `service start` and
+`service stop` behave the same way: without keys they offer the startable
+or active services, accept numbers, keys, or `all`, and never act on
+everything implicitly. Blank input or `q` cancels without changes; in a
+non-interactive context a missing key fails with usage guidance. Removing
+the final selected service is allowed and leaves an explicitly empty
+selection.
 
 Re-running `sudo ./lisa-edge setup` reselects everything at once. Choose the
 setup menu's `Edit configuration only` action when you only want to update

@@ -19,7 +19,8 @@ set +a
 . "$EDGE_REPO/lib/compose.sh"
 lisa_build_compose_files "$EDGE_REPO"
 
-echo "[LISA] Selected services: $(lisa_selected_services)"
+SELECTED_SERVICES="$(lisa_selected_services)"
+echo "[LISA] Selected services: ${SELECTED_SERVICES:-(none)}"
 docker compose --env-file .env "${LISA_COMPOSE_FILES[@]}" ps
 
 if command -v systemctl >/dev/null 2>&1; then

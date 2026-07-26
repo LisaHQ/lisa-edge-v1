@@ -16,10 +16,14 @@ LISA Edge should be treated as infrastructure.
 - Immutable container image digests for production releases
 
 The Ubuntu autoinstall account receives passwordless sudo only so unattended
-bootstrap can start. Bootstrap removes `/etc/sudoers.d/90-lisa-admin` after a
-usable local password is confirmed, unless the operator explicitly enables
-the documented emergency override (`LISA_KEEP_PASSWORDLESS_SUDO=1`, default
-`0`). Passwordless sudo is a lab/emergency exception, never the normal state.
+bootstrap can start. Bootstrap reconciles `/etc/sudoers.d/90-lisa-admin` with
+the configured desired state: it removes the grant after a usable local
+password is confirmed (default `LISA_KEEP_PASSWORDLESS_SUDO=0`), or - with the
+documented emergency override `LISA_KEEP_PASSWORDLESS_SUDO=1` - creates or
+corrects it for the configured admin user through a visudo-validated,
+atomically installed file (`root:root`, mode `0440`). Passwordless sudo is a
+lab/emergency exception, never the normal state, and hardening never creates
+the grant.
 
 ## Security audit and hardening
 

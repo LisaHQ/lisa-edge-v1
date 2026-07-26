@@ -17,6 +17,10 @@ set +a
 # shellcheck disable=SC1091
 . "$EDGE_REPO/lib/compose.sh"
 lisa_build_compose_files "$EDGE_REPO"
+# An empty selection is a valid deployment: the backup still protects .env,
+# host metadata, and any remaining service data; only the container
+# stop/restart around the archive step is skipped.
+SELECTED_SERVICES="$(lisa_selected_services)"
 
 DATA_ROOT="${DATA_ROOT:-/srv/lisa-edge}"
 BACKUP_DIR="${BACKUP_DEST:-$DATA_ROOT/backups}"
@@ -63,7 +67,9 @@ echo "[LISA] Creating backup: $ARCHIVE"
 
 STACK_STOPPED=1
 restart_stack() {
-  if [ "${STACK_STOPPED:-0}" -eq 1 ]; then
+  # 'compose up' fails on a project without services; with an empty
+  # selection there is nothing to restart.
+  if [ "${STACK_STOPPED:-0}" -eq 1 ] && [ -n "$SELECTED_SERVICES" ]; then
     echo "[LISA] Restarting stack after backup..."
     docker compose --env-file .env "${FILES[@]}" up -d || true
   fi
@@ -90,7 +96,9 @@ if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
   exit "$status"
 fi
 
-docker compose --env-file .env "${FILES[@]}" up -d
+if [ -n "$SELECTED_SERVICES" ]; then
+  docker compose --env-file .env "${FILES[@]}" up -d
+fi
 STACK_STOPPED=0
 rm -rf "$BACKUP_STAGING"
 trap - EXIT
@@ -133,12 +141,12 @@ if command -v jq >/dev/null 2>&1; then
     --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg hostname "$(hostname)" \
     --arg git_ref "$GIT_REF" \
-    --arg services "$(lisa_selected_services)" \
+    --arg services "$SELECTED_SERVICES" \
     --arg repo_root "$EDGE_REPO" \
     --arg data_root "$DATA_ROOT" \
     --arg otbr_backup_dir "$OTBR_BACKUP_DIR" \
     --arg sha256 "$ARCHIVE_SHA256" \
-    '{format_version: ($format_version | tonumber), archive_layout: $archive_layout, created_at: $created_at, hostname: $hostname, git_ref: $git_ref, services: ($services | split(" ")), repo_root: $repo_root, data_root: $data_root, otbr_backup_dir: $otbr_backup_dir, contains_secrets: true, sha256: $sha256}' \
+    '{format_version: ($format_version | tonumber), archive_layout: $archive_layout, created_at: $created_at, hostname: $hostname, git_ref: $git_ref, services: (if $services == "" then [] else ($services | split(" ")) end), repo_root: $repo_root, data_root: $data_root, otbr_backup_dir: $otbr_backup_dir, contains_secrets: true, sha256: $sha256}' \
     > "$ARCHIVE.manifest.json"
   chmod 0600 "$ARCHIVE.manifest.json"
 fi

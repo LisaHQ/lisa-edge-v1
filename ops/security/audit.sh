@@ -105,7 +105,7 @@ if [ "$KEEP_NOPASSWD" = "1" ]; then
   if [ "$NOPASSWD_EFFECTIVE" = "yes" ]; then
     note_degraded "passwordless sudo is enabled for $ADMIN_USER by explicit configuration (LISA_KEEP_PASSWORDLESS_SUDO=1); this is a lab/emergency exception, not a normal state."
   else
-    note_degraded "LISA_KEEP_PASSWORDLESS_SUDO=1 but no NOPASSWD grant was found ($SUDOERS_FILE); the configuration does not match the actual state."
+    note_degraded "LISA_KEEP_PASSWORDLESS_SUDO=1 but no NOPASSWD grant was found ($SUDOERS_FILE); the configuration does not match the actual state. Apply it with 'sudo ./lisa-edge setup' (Bootstrap or repair this host), or set LISA_KEEP_PASSWORDLESS_SUDO=0."
   fi
 else
   case "$NOPASSWD_EFFECTIVE" in

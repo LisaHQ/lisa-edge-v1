@@ -74,6 +74,16 @@ set +a
 lisa_build_compose_files "$EDGE_REPO"
 FILES=("${LISA_COMPOSE_FILES[@]}")
 
+# Zero selected services is a valid, intentionally empty deployment: there
+# is nothing to check, and the outcome is HEALTHY by contract (exit 0, also
+# with --strict).
+if [ -z "$(lisa_selected_services)" ]; then
+  echo "[LISA] No services selected."
+  echo "[LISA] The intentionally empty deployment is valid; nothing to check."
+  echo "[LISA] Overall status: HEALTHY"
+  exit 0
+fi
+
 # True when a service's checks should run: it must be selected, and - when
 # an explicit --services filter is given - part of that filter. The default
 # (no filter) preserves the full-stack behavior and exit codes.

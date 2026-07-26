@@ -110,9 +110,14 @@ immutable-image enforcement rejects any selected image without an `@sha256`
 digest.
 
 Autoinstall creates `/etc/sudoers.d/90-lisa-admin` only to make unattended
-first bootstrap possible. Bootstrap confirms that the configured administrator
-has a usable local password and removes the temporary grant unless the operator
-explicitly keeps the emergency/lab override.
+first bootstrap possible. Bootstrap reconciles that grant with the configured
+desired state: with `LISA_KEEP_PASSWORDLESS_SUDO=0` (default) it confirms that
+the configured administrator has a usable local password and removes the
+temporary grant; with the explicit emergency/lab override
+(`LISA_KEEP_PASSWORDLESS_SUDO=1`) it creates or corrects the grant for the
+configured admin user (visudo-validated, `root:root`, mode `0440`). The setup
+menu's `Edit configuration only` action never touches host sudo state; apply
+host-level changes with `Bootstrap or repair this host`.
 
 ## Re-running setup
 

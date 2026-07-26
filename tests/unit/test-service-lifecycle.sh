@@ -382,11 +382,28 @@ if grep -Eq '^docker (system|image prune|volume)' "$CALL_LOG"; then
   fail "no prune command may ever run"
 fi
 
-# --- start with no keys starts all selected, hooks in order ------------------
+# --- non-TTY missing service arguments must fail with usage guidance ---------
+write_env "mqtt uptime-kuma"
+for verb in add remove start stop; do
+  rc=0
+  output="$(run_lifecycle "$verb" </dev/null 2>&1)" || rc=$?
+  [ "$rc" -ne 0 ] || fail "service $verb without a key must fail in a non-interactive context"
+  grep -q 'Usage: lisa-edge service' <<<"$output" ||
+    fail "the non-interactive $verb rejection must print usage guidance"
+  grep -q 'requires a <service-key>' <<<"$output" ||
+    fail "the non-interactive $verb rejection must explain the missing key"
+done
+
+# Interactive menus below use the LISA_EDGE_TESTING-gated TTY seam.
+run_interactive() {
+  LISA_TEST_FORCE_TTY=1 run_lifecycle "$@"
+}
+
+# --- explicit start of several services runs hooks in order -------------------
 write_env "mqtt uptime-kuma"
 rm -f "$MOCK_DIR"/containers/*
 : > "$CALL_LOG"
-output="$(run_lifecycle start 2>&1)" || fail "service start failed: $output"
+output="$(run_lifecycle start mqtt uptime-kuma 2>&1)" || fail "service start failed: $output"
 grep -q '^mqtt-prepare' "$CALL_LOG" || fail "the mqtt prepare hook must run"
 prepare_line="$(grep -n '^mqtt-prepare' "$CALL_LOG" | head -1 | cut -d: -f1)"
 up_line="$(grep -n '^docker compose up -d --no-deps mosquitto' "$CALL_LOG" | head -1 | cut -d: -f1)"
@@ -446,17 +463,157 @@ mqtt_stop="$(grep -n '^docker compose stop mosquitto' "$CALL_LOG" | head -1 | cu
 [ "$z2m_stop" -lt "$mqtt_stop" ] || fail "the dependent must stop before its dependency"
 [ "$(cat "$MOCK_DIR/containers/lisa-mqtt")" = "exited" ] || fail "mqtt must be stopped"
 
-# --- stop with no keys stops everything running -------------------------------
+# --- interactive stop: menu lists only active services, 'all' works ----------
 echo running > "$MOCK_DIR/containers/lisa-mqtt"
 echo running > "$MOCK_DIR/containers/lisa-uptime"
 echo running > "$MOCK_DIR/containers/lisa-zigbee2mqtt"
 : > "$CALL_LOG"
-output="$(run_lifecycle stop 2>&1)" || fail "stop-all failed: $output"
-[ "$(cat "$MOCK_DIR/containers/lisa-mqtt")" = "exited" ] || fail "stop-all must stop mqtt"
-[ "$(cat "$MOCK_DIR/containers/lisa-zigbee2mqtt")" = "exited" ] || fail "stop-all must stop zigbee2mqtt"
+output="$(printf 'all\n' | run_interactive stop 2>&1)" || fail "interactive stop-all failed: $output"
+grep -q 'currently active' <<<"$output" || fail "the stop menu must announce the active candidates"
+[ "$(cat "$MOCK_DIR/containers/lisa-mqtt")" = "exited" ] || fail "interactive stop-all must stop mqtt"
+[ "$(cat "$MOCK_DIR/containers/lisa-zigbee2mqtt")" = "exited" ] || fail "interactive stop-all must stop zigbee2mqtt"
 if grep -q '^docker compose down' "$CALL_LOG"; then
   fail "service stop must use stop semantics, never down/remove"
 fi
+
+# --- interactive stop menu excludes stopped services --------------------------
+echo running > "$MOCK_DIR/containers/lisa-mqtt"
+echo running > "$MOCK_DIR/containers/lisa-zigbee2mqtt"
+output="$(printf '\n' | run_interactive stop 2>&1)" || fail "blank-cancel stop failed: $output"
+grep -q 'Cancelled' <<<"$output" || fail "blank input must cancel the stop menu"
+if grep -q 'lisa-uptime' <<<"$output" || grep -Eq '[0-9]\) uptime-kuma ' <<<"$output"; then
+  fail "the stop menu must not list stopped services"
+fi
+[ "$(cat "$MOCK_DIR/containers/lisa-mqtt")" = "running" ] || fail "a cancelled stop must not stop anything"
+
+# --- interactive stop by number stops only the chosen dependent ---------------
+: > "$CALL_LOG"
+# Active candidates in registry order: mqtt (1), zigbee2mqtt (2).
+output="$(printf '2\n' | run_interactive stop 2>&1)" || fail "numbered interactive stop failed: $output"
+[ "$(cat "$MOCK_DIR/containers/lisa-zigbee2mqtt")" = "exited" ] || fail "the chosen service must stop"
+[ "$(cat "$MOCK_DIR/containers/lisa-mqtt")" = "running" ] || fail "unchosen services must keep running"
+
+# --- interactive start: multi-select via numbers and keys ---------------------
+write_env "mqtt uptime-kuma zigbee2mqtt"
+rm -f "$MOCK_DIR"/containers/*
+: > "$CALL_LOG"
+output="$(printf '1 uptime-kuma\n' | run_interactive start 2>&1)" ||
+  fail "interactive multi start failed: $output"
+grep -q 'not running' <<<"$output" || fail "the start menu must announce the startable candidates"
+grep -q '^docker compose up -d --no-deps mosquitto' "$CALL_LOG" ||
+  fail "the numbered start choice must start mqtt"
+grep -q '^docker compose up -d --no-deps uptime-kuma' "$CALL_LOG" ||
+  fail "the key-based start choice must start uptime-kuma"
+if grep -q '^docker compose up -d --no-deps zigbee2mqtt' "$CALL_LOG"; then
+  fail "unchosen services must not be started"
+fi
+
+# --- interactive start menu lists only non-running services -------------------
+rm -f "$MOCK_DIR"/containers/*
+echo running > "$MOCK_DIR/containers/lisa-mqtt"
+echo running > "$MOCK_DIR/containers/lisa-uptime"
+: > "$CALL_LOG"
+output="$(printf 'all\n' | run_interactive start 2>&1)" || fail "interactive start-all failed: $output"
+grep -q '^docker compose up -d --no-deps zigbee2mqtt' "$CALL_LOG" ||
+  fail "'all' must start every startable candidate"
+if grep -Eq '^  [0-9]+\) mqtt ' <<<"$output"; then
+  fail "the start menu must not list already running services"
+fi
+
+# --- interactive start: 'q' cancels without mutation --------------------------
+rm -f "$MOCK_DIR"/containers/*
+: > "$CALL_LOG"
+output="$(printf 'q\n' | run_interactive start 2>&1)" || fail "q-cancel start failed: $output"
+grep -q 'Cancelled' <<<"$output" || fail "'q' must cancel the start menu"
+if grep -q '^docker compose up' "$CALL_LOG"; then
+  fail "a cancelled start must not start anything"
+fi
+
+# --- interactive start with no eligible candidate exits successfully ----------
+echo running > "$MOCK_DIR/containers/lisa-mqtt"
+echo running > "$MOCK_DIR/containers/lisa-uptime"
+echo running > "$MOCK_DIR/containers/lisa-zigbee2mqtt"
+output="$(run_interactive start </dev/null 2>&1)" ||
+  fail "start with everything running must exit successfully"
+grep -q 'already running' <<<"$output" || fail "the no-candidate start must explain itself"
+
+# --- interactive add: menu lists only unselected services ---------------------
+write_env "mqtt uptime-kuma"
+rm -f "$MOCK_DIR"/containers/*
+: > "$CALL_LOG"
+# Unselected candidates in registry order: ha(1) matter(2) otbr(3)
+# zigbee2mqtt(4) node-red(5) vpn-tailscale(6).
+output="$(printf '4\n\n\n\n\n\n\n\n\n\n' | run_interactive add 2>&1)" ||
+  fail "interactive add failed: $output"
+grep -q 'Services available to add' <<<"$output" || fail "the add menu must be announced"
+if grep -Eq '^  [0-9]+\) mqtt ' <<<"$output"; then
+  fail "the add menu must not list already selected services"
+fi
+grep -q 'requires: mqtt' <<<"$output" || fail "the add menu must show dependencies"
+selection="$(env_selection)"
+[ "$selection" = "mqtt uptime-kuma zigbee2mqtt" ] ||
+  fail "the interactive add must persist the chosen service, got: $selection"
+grep -q '^deploy $' "$CALL_LOG" || fail "the interactive add must invoke the internal engine"
+
+# --- interactive add: blank input cancels without mutation --------------------
+before="$(cat "$TREE/.env")"
+output="$(printf '\n' | run_interactive add 2>&1)" || fail "blank-cancel add failed: $output"
+grep -q 'Cancelled' <<<"$output" || fail "blank input must cancel the add menu"
+[ "$(cat "$TREE/.env")" = "$before" ] || fail "a cancelled add must not change .env"
+
+# --- interactive add with everything selected exits successfully --------------
+write_env "mqtt uptime-kuma ha matter otbr zigbee2mqtt node-red vpn-tailscale"
+output="$(run_interactive add </dev/null 2>&1)" ||
+  fail "add with everything selected must exit successfully"
+grep -q 'already selected' <<<"$output" || fail "the no-candidate add must explain itself"
+
+# --- interactive remove: menu shows runtime state, options still apply --------
+write_env "mqtt uptime-kuma zigbee2mqtt"
+mkdir -p "$DATA_ROOT/docker/volumes/zigbee2mqtt"
+echo state > "$DATA_ROOT/docker/volumes/zigbee2mqtt/db.json"
+echo running > "$MOCK_DIR/containers/lisa-zigbee2mqtt"
+: > "$CALL_LOG"
+# Selected candidates in registry order: mqtt(1) uptime-kuma(2) zigbee2mqtt(3).
+output="$(printf '3\n' | run_interactive remove --dry-run 2>&1)" ||
+  fail "interactive remove --dry-run failed: $output"
+grep -q 'state: running' <<<"$output" || fail "the remove menu must show the runtime state"
+grep -q 'service removal plan' <<<"$output" || fail "the interactive choice must reach the plan"
+grep -q 'docker/volumes/zigbee2mqtt' <<<"$output" || fail "the plan must list the owned data"
+[ -f "$DATA_ROOT/docker/volumes/zigbee2mqtt/db.json" ] || fail "--dry-run must not delete data"
+[ "$(env_selection)" = "mqtt uptime-kuma zigbee2mqtt" ] || fail "--dry-run must not change .env"
+
+# --- interactive remove: selecting a required dependency is still refused -----
+rc=0
+output="$(printf '1\n' | run_interactive remove --dry-run 2>&1)" || rc=$?
+[ "$rc" -ne 0 ] || fail "interactively choosing a required dependency must be refused"
+grep -q 'required by the selected service' <<<"$output" ||
+  fail "the interactive dependency refusal must name the dependents"
+
+# --- removing the final service leaves a valid explicitly empty selection -----
+write_env "uptime-kuma"
+rm -f "$MOCK_DIR"/containers/*
+echo running > "$MOCK_DIR/containers/lisa-uptime"
+: > "$CALL_LOG"
+output="$(printf 'REMOVE UPTIME-KUMA\n' | run_lifecycle remove uptime-kuma 2>&1)" ||
+  fail "removing the final service failed: $output"
+grep -q -- "-> '(none)'" <<<"$output" || fail "the plan must show the empty selection as (none)"
+grep -q 'No service remains selected' <<<"$output" ||
+  fail "the final-service removal must explain the empty deployment"
+[ -z "$(env_selection)" ] || fail "the selection must become explicitly empty"
+grep -q "^LISA_COMPOSE_SERVICES=''" "$TREE/.env" ||
+  fail ".env must keep an explicitly empty LISA_COMPOSE_SERVICES value"
+grep -q '^deploy $' "$CALL_LOG" || fail "the empty deployment must still be reconciled by the engine"
+
+# --- start/stop with zero selected services exit successfully -----------------
+output="$(run_interactive start </dev/null 2>&1)" || fail "start with zero services must exit 0"
+grep -q 'No service is selected' <<<"$output" || fail "the zero-service start must explain itself"
+output="$(run_interactive stop </dev/null 2>&1)" || fail "stop with zero services must exit 0"
+grep -q 'No service is selected' <<<"$output" || fail "the zero-service stop must explain itself"
+
+# --- interactive remove with nothing selected exits successfully --------------
+output="$(run_interactive remove --dry-run </dev/null 2>&1)" ||
+  fail "remove with zero services must exit successfully"
+grep -q 'nothing to remove' <<<"$output" || fail "the zero-service remove must explain itself"
 
 # --- service delete does not exist --------------------------------------------
 rc=0

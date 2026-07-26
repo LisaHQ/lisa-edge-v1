@@ -38,8 +38,13 @@ cat > "$TREE/services/matter-server/thread-sync-if-needed.sh" <<EOF
 #!/usr/bin/env bash
 echo "thread-sync-if-needed \$*" >> "$CALL_LOG"
 EOF
+cat > "$TREE/install/bootstrap/finalize-admin-access.sh" <<EOF
+#!/usr/bin/env bash
+echo "finalize-admin-access \$*" >> "$CALL_LOG"
+EOF
 chmod +x "$TREE/ops/deploy/deploy.sh" "$TREE/install/bootstrap/bootstrap.sh" \
-  "$TREE/services/matter-server/thread-sync-if-needed.sh"
+  "$TREE/services/matter-server/thread-sync-if-needed.sh" \
+  "$TREE/install/bootstrap/finalize-admin-access.sh"
 
 # A git PATH shim records any git invocation: setup actions must never
 # update the repository (that is what 'lisa-edge update' is for).
@@ -106,6 +111,39 @@ sync_line="$(grep -n '^thread-sync-if-needed' "$CALL_LOG" | head -1 | cut -d: -f
 deploy_line="$(grep -n '^deploy' "$CALL_LOG" | head -1 | cut -d: -f1)"
 [ "$deploy_line" -lt "$sync_line" ] ||
   fail "the thread check must run only after the internal engine completed"
+
+# --- refresh succeeds with an explicitly empty service selection --------------
+cat > "$TREE/.env" <<'EOF'
+LISA_COMPOSE_SERVICES=""
+EOF
+: > "$CALL_LOG"
+output="$(LISA_EDGE_TESTING=1 bash "$WIZARD" --mode refresh 2>&1)" ||
+  fail "refresh with zero selected services failed: $output"
+grep -q '^deploy $' "$CALL_LOG" || fail "refresh with zero services must still run the engine"
+grep -q 'Service refresh completed' <<<"$output" || fail "the empty refresh must report completion"
+
+# --- config-only never mutates host sudo state (and 'none' is accepted) -------
+cat > "$TREE/.env" <<'EOF'
+LISA_COMPOSE_SERVICES="mqtt uptime-kuma"
+MQTT_PASSWORD=test-password-value
+EOF
+: > "$CALL_LOG"
+output="$(printf '\n\n\n\n\n\n\n\n\n\nnone\n' |
+  LISA_EDGE_TESTING=1 bash "$WIZARD" --mode config-only 2>&1)" ||
+  fail "config-only with 'none' failed: $output"
+if grep -q '^bootstrap' "$CALL_LOG"; then
+  fail "config-only must never run the host bootstrap"
+fi
+if grep -q '^finalize-admin-access' "$CALL_LOG"; then
+  fail "config-only must never touch host sudo configuration"
+fi
+if grep -q '^deploy' "$CALL_LOG"; then
+  fail "config-only must not apply anything"
+fi
+grep -q "^LISA_COMPOSE_SERVICES=''" "$TREE/.env" ||
+  fail "config-only with 'none' must write an explicitly empty selection"
+grep -q 'Bootstrap or repair this host' <<<"$output" ||
+  fail "config-only guidance must point host-level changes at Bootstrap/repair"
 
 # --- both require an existing configuration ----------------------------------
 rm -f "$TREE/.env"

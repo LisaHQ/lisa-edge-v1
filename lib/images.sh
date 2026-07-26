@@ -13,6 +13,10 @@ lisa_is_pinned_image() {
 
 lisa_print_selected_images() {
   local service image pin_status
+  if [ -z "$(lisa_selected_services)" ]; then
+    printf '  %s\n' '(none - no services selected)'
+    return 0
+  fi
   for service in $(lisa_selected_services); do
     image="$(lisa_image_ref_for_service "$service")"
     pin_status=floating

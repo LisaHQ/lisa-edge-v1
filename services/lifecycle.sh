@@ -36,23 +36,33 @@ usage() {
 Usage: lisa-edge service <subcommand> [arguments]
 
 Subcommands:
-  list                          List available service selection keys
-  add <service-key>             Select, configure, start, and verify one
-                                new service (dependencies are added too)
-  remove <service-key> [opts]   Unselect one service and safely remove its
+  list                          List available service selection keys and
+                                their installation/runtime status
+  add [service-key]             Select, configure, start, and verify one
+                                new service (dependencies are added too).
+                                Without a key, an interactive menu offers
+                                the services that are not selected yet.
+  remove [service-key] [opts]   Unselect one service and safely remove its
                                 active data. Backups and images are
-                                preserved by default.
+                                preserved by default. Without a key, an
+                                interactive menu offers the selected
+                                services (options still apply).
       --dry-run                 Print the complete removal plan only
       --all-backups             Also delete backups dedicated to this
                                 service (second confirmation required)
       --purge-image             Also delete the service image when it is
                                 provably unused and unshared
   start [service-key ...]       Start selected services that are not
-                                running (all selected when no key is given)
-  stop [service-key ...]        Stop running selected services
-                                (all selected when no key is given)
+                                running. Without keys, an interactive menu
+                                offers the startable services (numbers,
+                                keys, or 'all').
+  stop [service-key ...]        Stop running selected services. Without
+                                keys, an interactive menu offers the
+                                active services (numbers, keys, or 'all').
 
 Service keys are shell-separated; see 'lisa-edge service list'.
+Interactive menus need a terminal; non-interactive callers must pass
+explicit service keys. In a menu, blank input or 'q' cancels safely.
 EOF
 }
 
@@ -110,13 +120,152 @@ service_is_selected() {
 }
 
 container_state() {
-  local container
+  local container state
   container="$(lisa_service_container_name "$1")"
-  docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || echo absent
+  # Some Docker versions print a blank stdout line before failing on a
+  # missing container; trust the output only on success and non-empty.
+  if state="$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)"; then
+    state="${state//[$'\r\n']/}"
+    [ -n "$state" ] && { printf '%s\n' "$state"; return 0; }
+  fi
+  echo absent
 }
 
 container_is_running() {
   [ "$(container_state "$1")" = "running" ]
+}
+
+# ---------------------------------------------------------------------------
+# Interactive selection (used when a lifecycle command is called without
+# service arguments). Menus are offered only on a real terminal; in a
+# non-interactive context a missing service argument fails with usage
+# guidance instead of waiting for input.
+# ---------------------------------------------------------------------------
+
+# True when an interactive menu may be shown. Test seam (mirrors the
+# repository's LISA_EDGE_TESTING contract): under LISA_EDGE_TESTING=1,
+# LISA_TEST_FORCE_TTY=1/0 overrides the real terminal check so both paths
+# are testable without a pty.
+interactive_ok() {
+  if [ "$TESTING" = "1" ] && [ -n "${LISA_TEST_FORCE_TTY:-}" ]; then
+    [ "$LISA_TEST_FORCE_TTY" = "1" ]
+    return
+  fi
+  [ -t 0 ] && [ -t 1 ]
+}
+
+require_menu_context_or_die() {
+  local verb="$1"
+  if ! interactive_ok; then
+    usage >&2
+    die "service $verb requires a <service-key> when no terminal is available for interactive selection."
+  fi
+}
+
+# Runtime state for menu display: 'unknown' when Docker cannot be queried,
+# otherwise the container state (running, exited, absent, ...).
+menu_runtime_state() {
+  if [ "${MENU_DOCKER_READY:-0}" -eq 1 ]; then
+    container_state "$1"
+  else
+    printf 'unknown\n'
+  fi
+}
+
+# One catalog line per candidate (add menu): key, display name,
+# dependencies, and purpose.
+menu_line_catalog() {
+  local key="$1" deps
+  deps="$(lisa_service_dependencies "$key")"
+  printf '%-14s %-26s %s%s' "$key" "$(lisa_service_name "$key")" \
+    "$(lisa_service_description "$key")" "${deps:+ [requires: $deps]}"
+}
+
+# One runtime line per candidate (remove/start/stop menus): key, display
+# name, and current container state.
+menu_line_runtime() {
+  local key="$1"
+  printf '%-14s %-26s state: %s' "$key" "$(lisa_service_name "$key")" \
+    "$(menu_runtime_state "$key")"
+}
+
+# Print one numbered menu and read a selection.
+#   prompt_service_menu <multi 0|1> <allow-all 0|1> <render-fn> <prompt> <candidate...>
+# Accepts numbers and service keys (aliases included); 'all' selects every
+# candidate when allowed. Blank input or 'q' cancels safely (exit 0, no
+# mutation). The chosen keys land in MENU_SELECTED in candidate order.
+prompt_service_menu() {
+  local multi="$1" allow_all="$2" render="$3" prompt="$4"
+  shift 4
+  local candidates=("$@")
+  local index=1 key input token chosen="" matched candidate count=0
+
+  MENU_DOCKER_READY=0
+  docker_ready && MENU_DOCKER_READY=1
+
+  echo
+  for key in "${candidates[@]}"; do
+    printf '  %d) %s\n' "$index" "$($render "$key")"
+    index=$((index + 1))
+  done
+  [ "$allow_all" = "1" ] && echo "  all) every service listed above"
+  echo "  q) cancel"
+  echo
+  read -r -p "$prompt" input || input=""
+  input="${input//,/ }"
+
+  # Blank input cancels; so does a lone q/Q anywhere in the input.
+  if [ -z "${input// /}" ]; then
+    echo "Cancelled. No changes were made."
+    exit 0
+  fi
+  for token in $input; do
+    case "$token" in
+      q|Q)
+        echo "Cancelled. No changes were made."
+        exit 0
+        ;;
+    esac
+  done
+
+  # shellcheck disable=SC2086
+  set -- $input
+  if [ "$allow_all" = "1" ] && [ "$#" -eq 1 ] && [ "${1,,}" = "all" ]; then
+    chosen="${candidates[*]}"
+  else
+    for token in $input; do
+      if [[ "$token" =~ ^[0-9]+$ ]]; then
+        [ "$token" -ge 1 ] && [ "$token" -le "${#candidates[@]}" ] ||
+          die "invalid menu number: $token (nothing was changed)."
+        key="${candidates[$((token - 1))]}"
+      else
+        key="$(lisa_normalize_service_id "$token")"
+        matched=0
+        for candidate in "${candidates[@]}"; do
+          [ "$candidate" = "$key" ] && matched=1
+        done
+        [ "$matched" -eq 1 ] ||
+          die "$token is not one of the listed candidates (nothing was changed)."
+      fi
+      case " $chosen " in
+        *" $key "*) ;;
+        *) chosen="${chosen:+$chosen }$key" ;;
+      esac
+    done
+  fi
+
+  count=0
+  for key in $chosen; do count=$((count + 1)); done
+  if [ "$multi" != "1" ] && [ "$count" -ne 1 ]; then
+    die "select exactly one service (nothing was changed)."
+  fi
+  # Preserve candidate (registry) order.
+  MENU_SELECTED=""
+  for candidate in "${candidates[@]}"; do
+    case " $chosen " in
+      *" $candidate "*) MENU_SELECTED="${MENU_SELECTED:+$MENU_SELECTED }$candidate" ;;
+    esac
+  done
 }
 
 # Print the requested set ordered dependencies-first (input: words).
@@ -196,13 +345,30 @@ check_thread_relationship_interactive() {
 # service add
 # ---------------------------------------------------------------------------
 cmd_add() {
-  [ "$#" -eq 1 ] || { usage >&2; die "service add requires exactly one <service-key>"; }
+  [ "$#" -le 1 ] || { usage >&2; die "service add accepts at most one <service-key>"; }
   require_root add "$@"
   require_env
   load_libs
 
   local key
-  key="$(normalize_key_or_die "$1")"
+  if [ "$#" -eq 1 ]; then
+    key="$(normalize_key_or_die "$1")"
+  else
+    require_menu_context_or_die add
+    local candidates=() service
+    for service in $LISA_ALL_SERVICES; do
+      service_is_selected "$service" || candidates+=("$service")
+    done
+    if [ "${#candidates[@]}" -eq 0 ]; then
+      info "Every available service is already selected; there is nothing to add."
+      return 0
+    fi
+    echo "Services available to add:"
+    prompt_service_menu 0 0 menu_line_catalog \
+      "Select ONE service to add (number or key, blank/q cancels): " \
+      "${candidates[@]}"
+    key="$MENU_SELECTED"
+  fi
 
   if service_is_selected "$key"; then
     info "$key is already selected; the configuration was not changed."
@@ -462,12 +628,27 @@ cmd_remove() {
     esac
     shift
   done
-  [ -n "$key" ] || { usage >&2; die "service remove requires a <service-key>"; }
-
-  [ "$dry_run" -eq 1 ] || require_root remove "$key"
+  [ "$dry_run" -eq 1 ] || require_root remove "${key:-}"
   require_env
   load_libs
   lisa_env_file_is_valid "$EDGE_REPO/.env" || die ".env does not parse; fix it before removing services."
+
+  if [ -z "$key" ]; then
+    require_menu_context_or_die remove
+    local selected_candidates=() candidate_key
+    for candidate_key in $(lisa_selected_services); do
+      selected_candidates+=("$candidate_key")
+    done
+    if [ "${#selected_candidates[@]}" -eq 0 ]; then
+      info "No service is selected; there is nothing to remove."
+      return 0
+    fi
+    echo "Selected services (removal is possible in any runtime state):"
+    prompt_service_menu 0 0 menu_line_runtime \
+      "Select ONE service to remove (number or key, blank/q cancels): " \
+      "${selected_candidates[@]}"
+    key="$MENU_SELECTED"
+  fi
   key="$(normalize_key_or_die "$key")"
 
   service_is_selected "$key" || die "$key is not selected; nothing to remove."
@@ -517,14 +698,14 @@ cmd_remove() {
     [ "$candidate" = "$key" ] || remaining="${remaining:+$remaining }$candidate"
   done
   new_selection="$(canonical_selection "$remaining")"
-  [ -n "$new_selection" ] ||
-    die "removing $key would leave no selected service; at least one service must remain."
+  # Removing the final service is allowed: the selection becomes explicitly
+  # empty and the empty deployment is reconciled by the internal engine.
 
   echo "==================================================================="
   echo " LISA Edge service removal plan"
   echo "==================================================================="
   echo "  Service:                 $key ($(lisa_service_name "$key"))"
-  echo "  Selection change:        '$(lisa_selected_services)' -> '$new_selection'"
+  echo "  Selection change:        '$(lisa_selected_services)' -> '${new_selection:-(none)}'"
   echo "  Container to remove:     $container_name (Compose service $compose_name)"
   echo "  Active data to DELETE:"
   printf '    - %s\n' "${owned_paths[@]}"
@@ -616,8 +797,14 @@ cmd_remove() {
   fi
 
   # Refresh and verify the remaining stack through the internal engine
-  # (removes obsolete Compose orphans and ends with the health check).
-  info "Refreshing the remaining selected stack..."
+  # (removes obsolete Compose orphans and ends with the health check). With
+  # an empty remaining selection the engine reconciles the intentionally
+  # empty deployment instead of starting anything.
+  if [ -n "$new_selection" ]; then
+    info "Refreshing the remaining selected stack..."
+  else
+    info "No service remains selected; reconciling the empty deployment..."
+  fi
   if ! bash "$EDGE_REPO/ops/deploy/deploy.sh"; then
     echo "ERROR: the remaining stack failed its refresh/health check." >&2
     echo "Inspect next: sudo ./lisa-edge health; sudo ./lisa-edge status" >&2
@@ -630,35 +817,77 @@ cmd_remove() {
 
   echo
   echo "service remove completed: $key was unselected, its container and"
-  echo "active data were removed, and the remaining stack passed the health"
-  echo "check. Backups were preserved$( [ "$all_backups" -eq 1 ] && echo " except the $key-dedicated ones (deleted on request)" )."
+  if [ -n "$new_selection" ]; then
+    echo "active data were removed, and the remaining stack passed the health"
+    echo "check. Backups were preserved$( [ "$all_backups" -eq 1 ] && echo " except the $key-dedicated ones (deleted on request)" )."
+  else
+    echo "active data were removed. No service remains selected; the host"
+    echo "stays configured and provisioned with an intentionally empty"
+    echo "deployment. Backups were preserved$( [ "$all_backups" -eq 1 ] && echo " except the $key-dedicated ones (deleted on request)" )."
+  fi
 }
 
 # ---------------------------------------------------------------------------
 # service start / service stop
 # ---------------------------------------------------------------------------
 
-# Parse and validate the requested keys against the selection. With no keys,
-# print the full selection. Rejects unselected services.
+# Parse and validate explicitly requested keys against the selection.
+# Rejects unselected services. (Called with at least one key; the no-key
+# case is handled by the interactive menus.)
 resolve_runtime_targets() {
   local action="$1"
   shift
   local targets="" key
-  if [ "$#" -eq 0 ]; then
-    targets="$(lisa_selected_services)"
-  else
-    for key in "$@"; do
-      key="$(normalize_key_or_die "$key")"
-      service_is_selected "$key" ||
-        die "$key is not selected. Select and configure it first with: sudo ./lisa-edge service add $key"
-      case " $targets " in
-        *" $key "*) ;;
-        *) targets="${targets:+$targets }$key" ;;
-      esac
-    done
-  fi
+  for key in "$@"; do
+    key="$(normalize_key_or_die "$key")"
+    service_is_selected "$key" ||
+      die "$key is not selected. Select and configure it first with: sudo ./lisa-edge service add $key"
+    case " $targets " in
+      *" $key "*) ;;
+      *) targets="${targets:+$targets }$key" ;;
+    esac
+  done
   [ -n "$targets" ] || die "no service to $action."
   printf '%s\n' "$targets"
+}
+
+# Interactive candidate selection for start/stop. mode=start offers the
+# selected services that are not active (absent, exited, created, or dead);
+# mode=stop offers the active ones (running, restarting, or paused). Multi-
+# select with numbers, keys, or 'all'. Exits 0 with a clear message when
+# there is no eligible candidate. The chosen keys land in MENU_SELECTED
+# (this function must be called directly, never inside a command
+# substitution, so the menu is displayed and cancel exits work).
+choose_runtime_targets_interactive() {
+  local mode="$1" verb_label="$2"
+  require_menu_context_or_die "$mode"
+
+  local candidates=() service state
+  for service in $(lisa_selected_services); do
+    state="$(container_state "$service")"
+    case "$mode:$state" in
+      start:running|start:restarting|start:paused) ;;
+      start:*) candidates+=("$service") ;;
+      stop:running|stop:restarting|stop:paused) candidates+=("$service") ;;
+      stop:*) ;;
+    esac
+  done
+
+  if [ "${#candidates[@]}" -eq 0 ]; then
+    if [ -z "$(lisa_selected_services)" ]; then
+      info "No service is selected; there is nothing to $mode."
+    elif [ "$mode" = "start" ]; then
+      info "Every selected service is already running; there is nothing to start."
+    else
+      info "No selected service is currently active; there is nothing to stop."
+    fi
+    exit 0
+  fi
+
+  echo "$verb_label"
+  prompt_service_menu 1 1 menu_line_runtime \
+    "Select services to $mode (numbers/keys, 'all', blank/q cancels): " \
+    "${candidates[@]}"
 }
 
 cmd_start() {
@@ -669,7 +898,12 @@ cmd_start() {
   docker_ready || die "Docker is not reachable; start Docker first."
 
   local targets service dependency
-  targets="$(resolve_runtime_targets start "$@")"
+  if [ "$#" -eq 0 ]; then
+    choose_runtime_targets_interactive start "Selected services that are not running:"
+    targets="$MENU_SELECTED"
+  else
+    targets="$(resolve_runtime_targets start "$@")"
+  fi
 
   # Selected dependencies start first, even when not requested explicitly.
   for service in $targets; do
@@ -722,7 +956,12 @@ cmd_stop() {
   docker_ready || die "Docker is not reachable; start Docker first."
 
   local targets service dependent
-  targets="$(resolve_runtime_targets stop "$@")"
+  if [ "$#" -eq 0 ]; then
+    choose_runtime_targets_interactive stop "Selected services that are currently active:"
+    targets="$MENU_SELECTED"
+  else
+    targets="$(resolve_runtime_targets stop "$@")"
+  fi
 
   # Refuse to stop a dependency while a selected running dependent stays up.
   for service in $targets; do

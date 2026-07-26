@@ -5,7 +5,10 @@ LISA_REPO_ROOT="$(cd "$LISA_LIB_DIR/.." && pwd)"
 . "$LISA_REPO_ROOT/services/registry.sh"
 
 lisa_selected_services() {
-  local selected="${LISA_COMPOSE_SERVICES:-$LISA_DEFAULT_SERVICES}"
+  # ${VAR-default} (not ${VAR:-default}): only a completely UNSET selection
+  # falls back to the registry defaults. An explicitly EMPTY selection means
+  # "this host intentionally runs zero services" and must stay empty.
+  local selected="${LISA_COMPOSE_SERVICES-$LISA_DEFAULT_SERVICES}"
   local service normalized result=""
   if [ "$selected" = "all" ]; then
     selected="$LISA_ALL_SERVICES"
@@ -35,11 +38,8 @@ lisa_validate_services() {
   local dependency
   selected="$(lisa_selected_services)"
 
-  if [ -z "$selected" ]; then
-    echo "At least one LISA service must be selected." >&2
-    return 1
-  fi
-
+  # An empty selection is valid: the host is configured and provisioned but
+  # intentionally runs no application service.
   for service in $selected; do
     case " $LISA_ALL_SERVICES " in
       *" $service "*) ;;

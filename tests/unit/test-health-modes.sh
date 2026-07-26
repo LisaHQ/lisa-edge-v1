@@ -226,4 +226,17 @@ rc=0
 MOCK_SCENARIO=connect-fail bash "$HEALTH" --strict >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 1 ] || fail "FAILED must exit 1 even with --strict, got $rc"
 
+# --- zero selected services: intentionally empty deployments are HEALTHY ------------------
+cat > "$TREE/.env" <<'EOF'
+LISA_COMPOSE_SERVICES=""
+EOF
+rc=0
+output="$(bash "$HEALTH" 2>&1)" || rc=$?
+[ "$rc" -eq 0 ] || fail "an empty selection must be HEALTHY (exit 0), got $rc: $output"
+grep -q 'No services selected' <<<"$output" || fail "the empty selection must be announced"
+grep -q 'Overall status: HEALTHY' <<<"$output" || fail "the empty deployment must report HEALTHY"
+rc=0
+bash "$HEALTH" --strict >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "an empty selection must stay HEALTHY under --strict, got $rc"
+
 echo "Health mode tests passed."

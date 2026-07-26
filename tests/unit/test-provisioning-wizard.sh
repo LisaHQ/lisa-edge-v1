@@ -13,6 +13,51 @@ output="$({
 grep -qi 'Added mqtt because zigbee2mqtt depends on it' <<<"$output"
 grep -q 'services: mqtt zigbee2mqtt' <<<"$output"
 
+# --- zero-service selection: explicit 'none' is a valid choice ---------------
+output="$(printf '\n\n\n\n\n\n\n\n\n\nnone\n' |
+  bash "$WIZARD" --mode config-only --dry-run 2>&1)"
+grep -q 'none) Select no service' <<<"$output" || {
+  echo "The service menu must offer an explicit 'none' option." >&2
+  exit 1
+}
+grep -q 'Selected services: (none)' <<<"$output" || {
+  echo "Selecting 'none' must be accepted and reported as (none)." >&2
+  exit 1
+}
+grep -q 'services: (none)' <<<"$output" || {
+  echo "The review output must print (none) instead of a blank service list." >&2
+  exit 1
+}
+grep -q '(none - no services selected)' <<<"$output" || {
+  echo "The image review must handle an empty selection." >&2
+  exit 1
+}
+grep -q "Bootstrap or repair this host" <<<"$output" || {
+  echo "The config-only guidance must point host-level changes at Bootstrap/repair." >&2
+  exit 1
+}
+grep -q "Host-level settings" <<<"$output" || {
+  echo "The config-only guidance must state that Refresh services does not apply host-level settings." >&2
+  exit 1
+}
+if grep -q 'Refresh services, or Bootstrap' <<<"$output"; then
+  echo "The old ambiguous config-only guidance must be gone." >&2
+  exit 1
+fi
+
+# --- pressing Enter preserves an explicitly empty current selection ----------
+# (.env.template ships LISA_COMPOSE_SERVICES="" - explicitly empty.)
+output="$(printf '\n\n\n\n\n\n\n\n\n\n\n' |
+  bash "$WIZARD" --mode config-only --dry-run 2>&1)"
+grep -q 'Current/default selection: (none)' <<<"$output" || {
+  echo "An empty current selection must be shown as (none)." >&2
+  exit 1
+}
+grep -q 'services: (none)' <<<"$output" || {
+  echo "Pressing Enter must preserve the empty selection, not restore defaults." >&2
+  exit 1
+}
+
 if conflict_output="$({
   printf '\n\n\n\n\n\n\n\n\n\n1 7\n'
   for _ in $(seq 1 6); do echo; done

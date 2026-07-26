@@ -131,6 +131,12 @@ echo "Checking service selection and image policy..."
 bash "$REPO_ROOT/tests/unit/test-service-selection.sh"
 bash "$REPO_ROOT/tests/unit/test-image-policy.sh"
 
+echo "Checking the service list statuses..."
+bash "$REPO_ROOT/tests/unit/test-service-list.sh"
+
+echo "Checking zero-service runtime behavior..."
+bash "$REPO_ROOT/tests/unit/test-zero-services.sh"
+
 echo "Checking root CLI command model..."
 bash "$REPO_ROOT/tests/unit/test-root-cli.sh"
 
@@ -175,6 +181,9 @@ bash "$REPO_ROOT/tests/security/test-dataset-secret-safety.sh"
 
 echo "Checking security audit and hardening..."
 bash "$REPO_ROOT/tests/security/test-security-audit.sh"
+
+echo "Checking passwordless sudo reconciliation..."
+bash "$REPO_ROOT/tests/security/test-sudo-reconcile.sh"
 
 echo "Checking Rescue OS path guardrails..."
 bash "$REPO_ROOT/tests/security/test-recovery-safety.sh"

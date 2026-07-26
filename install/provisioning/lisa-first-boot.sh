@@ -103,7 +103,11 @@ contains_word() {
 }
 
 select_services() {
-  local current="${LISA_COMPOSE_SERVICES:-$LISA_DEFAULT_SERVICES}"
+  # ${VAR-default}: only a completely unset selection falls back to the
+  # registry defaults; an explicitly EMPTY selection stays empty. Selecting
+  # zero services is valid: the host stays configured and provisioned
+  # without deploying an application service.
+  local current="${LISA_COMPOSE_SERVICES-$LISA_DEFAULT_SERVICES}"
   local input token service dependency selected="" normalized_current=""
   local index=1
 
@@ -126,8 +130,9 @@ select_services() {
     index=$((index + 1))
   done
   echo "  all) Install all services"
+  echo "  none) Select no service (the host stays provisioned without services)"
   echo
-  echo "Current/default selection: $current"
+  echo "Current/default selection: ${current:-(none)}"
   read -r -p "Select numbers or names separated by comma/space [keep current]: " input
   input="${input//,/ }"
 
@@ -135,6 +140,8 @@ select_services() {
     selected="$current"
   elif [ "${input,,}" = "all" ]; then
     selected="$ALL_SERVICE_NAMES"
+  elif [ "${input,,}" = "none" ]; then
+    selected=""
   else
     for token in $input; do
       if [[ "$token" =~ ^[0-9]+$ ]] && [ "$token" -ge 1 ] && [ "$token" -le "${#SERVICE_IDS[@]}" ]; then
@@ -147,7 +154,6 @@ select_services() {
     done
   fi
 
-  [ -n "$selected" ] || die "Select at least one service."
   for service in $selected; do
     for dependency in $(lisa_service_dependencies "$service"); do
       if ! contains_word "$selected" "$dependency"; then
@@ -163,8 +169,7 @@ select_services() {
       LISA_COMPOSE_SERVICES="${LISA_COMPOSE_SERVICES:+$LISA_COMPOSE_SERVICES }$service"
     fi
   done
-  [ -n "$LISA_COMPOSE_SERVICES" ] || die "Select at least one implemented service."
-  info "Selected services: $LISA_COMPOSE_SERVICES"
+  info "Selected services: ${LISA_COMPOSE_SERVICES:-(none)}"
 }
 
 configure_global() {
@@ -383,7 +388,7 @@ write_environment() {
     echo "  backup destination: $BACKUP_DEST"
     echo "  backup requires mount: $BACKUP_REQUIRE_MOUNT"
     [ -n "${BACKUP_EXPECTED_MOUNT_SOURCE:-}" ] && echo "  expected mount source: $BACKUP_EXPECTED_MOUNT_SOURCE"
-    echo "  services: $LISA_COMPOSE_SERVICES"
+    echo "  services: ${LISA_COMPOSE_SERVICES:-(none)}"
     echo "  immutable images required: $LISA_REQUIRE_PINNED_IMAGES"
     echo "  keep passwordless sudo: $LISA_KEEP_PASSWORDLESS_SUDO"
     lisa_print_selected_images
@@ -481,7 +486,11 @@ apply_provisioning() {
   [ "$MODE" != "config-only" ] || return 0
   [ "$DRY_RUN" -eq 0 ] || return 0
 
-  ask_yes_no confirmed "Bootstrap this host and start the selected services now" "yes"
+  if [ -n "${LISA_COMPOSE_SERVICES:-}" ]; then
+    ask_yes_no confirmed "Bootstrap this host and start the selected services now" "yes"
+  else
+    ask_yes_no confirmed "Bootstrap this host now (no service is selected, none will be started)" "yes"
+  fi
   [ "$confirmed" = "yes" ] || die "Provisioning cancelled; .env was saved."
 
   hostnamectl set-hostname "$LISA_EDGE_HOSTNAME" || warn "Could not update the runtime hostname."
@@ -563,8 +572,10 @@ main() {
   apply_provisioning
 
   if [ "$MODE" = "config-only" ]; then
-    info "Configuration saved without being applied. Apply it later through"
-    info "'sudo ./lisa-edge setup' (Refresh services, or Bootstrap/repair)."
+    info "Configuration saved without being applied."
+    info "Apply service changes with 'sudo ./lisa-edge setup' (Refresh services)."
+    info "Host-level settings (such as sudo access) are applied only by"
+    info "'sudo ./lisa-edge setup' (Bootstrap or repair this host)."
   fi
 }
 

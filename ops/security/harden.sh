@@ -163,6 +163,8 @@ if [ -e "$SUDOERS_FILE" ]; then
   else
     note_skipped "passwordless sudo: removal refused (no usable password could be verified or established). Run 'sudo passwd $ADMIN_USER', then rerun."
   fi
+elif [ "${LISA_KEEP_PASSWORDLESS_SUDO:-0}" = "1" ]; then
+  note_skipped "passwordless sudo: the configured exception (LISA_KEEP_PASSWORDLESS_SUDO=1) expects a grant, but none exists. Hardening never creates sudo grants; apply the configuration with 'sudo ./lisa-edge setup' (Bootstrap or repair this host), or set LISA_KEEP_PASSWORDLESS_SUDO=0."
 else
   info "no temporary passwordless sudo grant is present."
 fi
