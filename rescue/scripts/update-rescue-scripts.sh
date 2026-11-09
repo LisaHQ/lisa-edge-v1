@@ -6,7 +6,7 @@ if [[ "${EUID}" -ne 0 ]]; then
     exit 1
 fi
 
-REPO_URL="${REPO_URL:-https://github.com/LisaHQ/lisa-edge.git}"
+REPO_URL="${REPO_URL:-https://github.com/LisaHQ/lisa-edge-v1.git}"
 BRANCH="${BRANCH:-main}"
 RESCUE_ROOT="${LISA_RESCUE_ROOT:-/opt/lisa-rescue}"
 TMP_DIR="$(mktemp -d)"

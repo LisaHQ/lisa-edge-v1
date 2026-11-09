@@ -21,7 +21,7 @@ Automated host bootstrap currently supports Ubuntu Server and Debian.
 ### 1. Clone the repository
 
 ```bash
-sudo git clone https://github.com/LisaHQ/lisa-edge.git /opt/lisa-edge
+sudo git clone https://github.com/LisaHQ/lisa-edge-v1.git /opt/lisa-edge
 cd /opt/lisa-edge
 ```
 

@@ -74,7 +74,7 @@ distributions may run the Compose services, but their host preparation is a
 manual, unsupported path today.
 
 ```bash
-sudo git clone https://github.com/LisaHQ/lisa-edge.git /opt/lisa-edge
+sudo git clone https://github.com/LisaHQ/lisa-edge-v1.git /opt/lisa-edge
 cd /opt/lisa-edge
 sudo ./lisa-edge setup
 sudo ./lisa-edge health

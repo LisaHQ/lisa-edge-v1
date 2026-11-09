@@ -82,7 +82,7 @@ autoinstall:
 
   late-commands:
     - curtin in-target --target=/target -- mkdir -p /opt
-    - curtin in-target --target=/target -- git clone --depth 1 --branch main https://github.com/LisaHQ/lisa-edge.git /opt/lisa-edge
+    - curtin in-target --target=/target -- git clone --depth 1 --branch main https://github.com/LisaHQ/lisa-edge-v1.git /opt/lisa-edge
     - curtin in-target --target=/target -- find /opt/lisa-edge/install /opt/lisa-edge/rescue -type f -name "*.sh" -exec chmod +x {} \;
     - curtin in-target --target=/target -- chmod +x /opt/lisa-edge/lisa-edge
     - curtin in-target --target=/target -- /opt/lisa-edge/lisa-edge rescue bootstrap

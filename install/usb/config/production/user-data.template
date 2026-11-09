@@ -107,7 +107,7 @@ autoinstall:
     ssh_pwauth: false
 
   late-commands:
-    - curtin in-target --target=/target -- git clone --branch REPLACE_WITH_LISA_EDGE_GIT_REF --depth 1 https://github.com/LisaHQ/lisa-edge.git /opt/lisa-edge
+    - curtin in-target --target=/target -- git clone --branch REPLACE_WITH_LISA_EDGE_GIT_REF --depth 1 https://github.com/LisaHQ/lisa-edge-v1.git /opt/lisa-edge
     - curtin in-target --target=/target -- find /opt/lisa-edge -type f -name "*.sh" -exec chmod +x {} \;
     - curtin in-target --target=/target -- chmod +x /opt/lisa-edge/lisa-edge
     - curtin in-target --target=/target -- install -m 0644 /opt/lisa-edge/install/provisioning/systemd/lisa-first-boot.service /etc/systemd/system/lisa-first-boot.service
